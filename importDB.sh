@@ -22,8 +22,12 @@ fi
 # Konfiguration einlesen (lädt die Variablen)
 source "./$CONF_FILE"
 
-# Quellverzeichnis der Dumps
+# Quellverzeichnis der Dumps: Default, optional überschrieben durch dbtools.conf
 SOURCE_DIR="../sql-dumps"
+if [ -f "./dbtools.conf" ]; then
+    source "./dbtools.conf"
+    SOURCE_DIR="$DUMP_DIR"
+fi
 
 # Dump-Datei bestimmen:
 # - 2. Parameter endet auf .sql/.sql.gz -> als Dateiname behandeln

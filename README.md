@@ -22,6 +22,18 @@ PREFIX="project-dev"
 
 Dateien nach dem Muster `db_*.conf` (außer `db_template.conf`) werden von Git ignoriert, damit keine echten Zugangsdaten versehentlich veröffentlicht werden.
 
+Optional kann das Dump-Verzeichnis (Standard: `../sql-dumps`, gilt für Export und Import gleichermaßen) über eine globale Konfigurationsdatei angepasst werden, basierend auf `dbtools.conf.example`:
+
+```
+cp dbtools.conf.example dbtools.conf
+```
+
+```
+DUMP_DIR="../sql-dumps"
+```
+
+`dbtools.conf` wird ebenfalls von Git ignoriert. Tilde (`~`) wird von Bash in Anführungszeichen nicht aufgelöst, stattdessen `$HOME` verwenden, z. B. `DUMP_DIR="$HOME/sqldumps"`.
+
 ## Nutzung
 
 ### Export
@@ -30,7 +42,7 @@ Dateien nach dem Muster `db_*.conf` (außer `db_template.conf`) werden von Git i
 ./exportDB.sh dev
 ```
 
-Erstellt einen komprimierten Dump unter `../sql-dumps/`.
+Erstellt einen komprimierten Dump im Dump-Verzeichnis (siehe oben).
 
 ### Import
 

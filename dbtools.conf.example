@@ -1,0 +1,10 @@
+# Globale Konfiguration für alle db-tools-Skripte (export und import).
+# Kopieren nach dbtools.conf und bei Bedarf anpassen:
+#   cp dbtools.conf.example dbtools.conf
+#
+# Fehlt dbtools.conf, wird ../sql-dumps als Standard verwendet.
+
+# Verzeichnis für SQL-Dumps. Tilde (~) wird von Bash in Anführungszeichen
+# NICHT aufgelöst, stattdessen $HOME verwenden, z. B.:
+#   DUMP_DIR="$HOME/sqldumps"
+DUMP_DIR="../sql-dumps"

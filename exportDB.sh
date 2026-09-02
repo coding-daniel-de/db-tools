@@ -21,8 +21,14 @@ fi
 # Konfiguration einlesen (lädt die Variablen)
 source "./$CONF_FILE"
 
-# Zielverzeichnis definieren und erstellen, falls es nicht existiert
+# Dump-Verzeichnis: Default, optional überschrieben durch dbtools.conf
 TARGET_DIR="../sql-dumps"
+if [ -f "./dbtools.conf" ]; then
+    source "./dbtools.conf"
+    TARGET_DIR="$DUMP_DIR"
+fi
+
+# Zielverzeichnis erstellen, falls es nicht existiert
 mkdir -p "$TARGET_DIR"
 
 # Dateiname generieren
