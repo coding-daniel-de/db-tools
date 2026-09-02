@@ -1,0 +1,2 @@
+db_*.conf
+!db_template.conf
