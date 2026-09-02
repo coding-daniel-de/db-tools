@@ -58,4 +58,10 @@ Importiert den neuesten Dump der Zielumgebung. Optional kann eine konkrete Datei
 
 Importiert den neuesten `dev`-Dump in die `update`-Umgebung (Zugangsdaten bleiben die der Zielumgebung).
 
+Alternativ kann mit `list` eine nach Datum sortierte Auswahl aller Dumps im Dump-Verzeichnis angezeigt werden (neuester zuerst, Nummer 1):
+
+```
+./importDB.sh update list
+```
+
 Vor jedem Import erfolgt eine Sicherheitsabfrage, da die Zieldatenbank überschrieben wird.

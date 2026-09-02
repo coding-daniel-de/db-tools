@@ -3,9 +3,10 @@
 # Hilfe-Text anzeigen, wenn der erste Parameter komplett fehlt
 if [ -z "$1" ]; then
     echo "Fehler: Bitte gib die Umgebung an!"
-    echo "Nutzung: $0 [ziel-umgebung] [optional: dateiname.sql.gz | quell-umgebung]"
+    echo "Nutzung: $0 [ziel-umgebung] [optional: dateiname.sql.gz | quell-umgebung | list]"
     echo "Beispiel: $0 dev"
-    echo "Beispiel: $0 update dev   (neuesten dev-Dump nach update importieren)"
+    echo "Beispiel: $0 update dev    (neuesten dev-Dump nach update importieren)"
+    echo "Beispiel: $0 update list   (Dump aus einer Liste aller Dumps auswählen)"
     exit 1
 fi
 
@@ -31,6 +32,7 @@ fi
 
 # Dump-Datei bestimmen:
 # - 2. Parameter endet auf .sql/.sql.gz -> als Dateiname behandeln
+# - 2. Parameter ist "list" -> alle Dumps im Dump-Verzeichnis zur Auswahl anzeigen
 # - 2. Parameter ist sonst gesetzt -> als Quell-Umgebung behandeln, deren PREFIX
 #   für die Dump-Suche übernehmen (Zugangsdaten bleiben die der Ziel-Umgebung!)
 # - kein 2. Parameter -> neuesten Dump der Ziel-Umgebung (eigener PREFIX) suchen
@@ -38,6 +40,23 @@ if [ -n "$2" ]; then
     case "$2" in
         *.sql|*.sql.gz)
             FILE="$2"
+            ;;
+        list)
+            mapfile -t DUMPS < <(ls -t "${SOURCE_DIR}"/*.sql "${SOURCE_DIR}"/*.sql.gz 2>/dev/null)
+            if [ ${#DUMPS[@]} -eq 0 ]; then
+                echo "Fehler: Keine Dumps in '${SOURCE_DIR}' gefunden!"
+                exit 1
+            fi
+            echo "Verfügbare Dumps in '${SOURCE_DIR}' (neuester zuerst):"
+            for i in "${!DUMPS[@]}"; do
+                echo "  $((i + 1))) $(basename "${DUMPS[$i]}")"
+            done
+            read -p "Nummer wählen: " SELECTION
+            if ! [[ "$SELECTION" =~ ^[0-9]+$ ]] || [ "$SELECTION" -lt 1 ] || [ "$SELECTION" -gt "${#DUMPS[@]}" ]; then
+                echo "Fehler: Ungültige Auswahl '${SELECTION}'!"
+                exit 1
+            fi
+            FILE="${DUMPS[$((SELECTION - 1))]}"
             ;;
         *)
             SOURCE_CONF="db_${2}.conf"
