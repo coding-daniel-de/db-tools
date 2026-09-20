@@ -40,9 +40,9 @@ TARGET_DIR="$DUMP_DIR"
 # Rückgabe 1 bei leerem Passwort oder wenn beide Eingaben nicht übereinstimmen.
 ask_new_password() {
     local pass2
-    read -r -s -p "Passwort: " ENC_PASS
+    IFS= read -r -s -p "Passwort: " ENC_PASS
     echo
-    read -r -s -p "Passwort wiederholen: " pass2
+    IFS= read -r -s -p "Passwort wiederholen: " pass2
     echo
     if [ -z "$ENC_PASS" ]; then
         echo "Fehler: Das Passwort darf nicht leer sein!"

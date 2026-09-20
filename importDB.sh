@@ -106,7 +106,7 @@ fi
 # Deshalb werden die ersten Bytes entschlüsselt und auf die gzip-Magic-Bytes (1f 8b) geprüft.
 # Das Passwort geht nur über den Dateideskriptor 3 an gpg (nie als Argument, sonst per ps sichtbar).
 if [[ "$FILE" == *.gpg ]]; then
-    read -r -s -p "Passwort für '$(basename "$FILE")': " DUMP_PASS
+    IFS= read -r -s -p "Passwort für '$(basename "$FILE")': " DUMP_PASS
     echo
     MAGIC=$(gpg --batch --quiet --pinentry-mode loopback --no-symkey-cache --passphrase-fd 3 -d "$FILE" \
         3< <(printf '%s' "$DUMP_PASS") 2>/dev/null | head -c 2 | od -An -tx1 | tr -d ' ')
@@ -138,9 +138,8 @@ if [[ "$FILE" == *.gpg ]]; then
     echo "Erkannt: verschlüsselter, gzip-komprimierter Dump"
     gpg --batch --quiet --pinentry-mode loopback --no-symkey-cache --passphrase-fd 3 -d "$FILE" \
         3< <(printf '%s' "$DUMP_PASS") | gunzip | mysql -h "$DB_HOST" -u "$DB_USER" "$DB_NAME"
-# Anhand der Magic-Bytes prüfen, ob es sich um eine gzip-komprimierte Datei handelt
-# (die ersten beiden Bytes einer gzip-Datei sind immer 1f 8b)
 elif [ "$(head -c 2 "$FILE" | od -An -tx1 | tr -d ' ')" = "1f8b" ]; then
+    # Anhand der Magic-Bytes erkannt (die ersten beiden Bytes einer gzip-Datei sind immer 1f 8b)
     echo "Erkannt: gzip-komprimierter Dump"
     gunzip -c "$FILE" | mysql -h "$DB_HOST" -u "$DB_USER" "$DB_NAME"
 else
