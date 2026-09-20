@@ -8,25 +8,33 @@ if [ -z "$1" ]; then
     exit 1
 fi
 
+# Ordner dieses Skripts ermitteln, damit der Aufruf aus jedem Ordner funktioniert
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+
 # Umgebung festlegen anhand des Parameters
 ENV=$1
-CONF_FILE="db_${ENV}.conf"
+CONF_FILE="${SCRIPT_DIR}/db_${ENV}.conf"
 
 # Prüfen, ob die zugehörige Konfigurationsdatei existiert
 if [ ! -f "$CONF_FILE" ]; then
-    echo "Fehler: Konfigurationsdatei '$CONF_FILE' wurde nicht gefunden!"
+    echo "Fehler: Konfigurationsdatei 'db_${ENV}.conf' wurde nicht gefunden (gesucht in '${SCRIPT_DIR}')!"
     exit 1
 fi
 
 # Konfiguration einlesen (lädt die Variablen)
-source "./$CONF_FILE"
+source "$CONF_FILE"
 
 # Dump-Verzeichnis: Default, optional überschrieben durch dbtools.conf
-TARGET_DIR="../sql-dumps"
-if [ -f "./dbtools.conf" ]; then
-    source "./dbtools.conf"
-    TARGET_DIR="$DUMP_DIR"
+# (relativer Pfad gilt relativ zum Skript-Ordner)
+DUMP_DIR="${SCRIPT_DIR}/../sql-dumps"
+if [ -f "${SCRIPT_DIR}/dbtools.conf" ]; then
+    source "${SCRIPT_DIR}/dbtools.conf"
 fi
+case "$DUMP_DIR" in
+    /*) ;;
+    *) DUMP_DIR="${SCRIPT_DIR}/${DUMP_DIR}" ;;
+esac
+TARGET_DIR="$DUMP_DIR"
 
 # Zielverzeichnis erstellen, falls es nicht existiert
 mkdir -p "$TARGET_DIR"

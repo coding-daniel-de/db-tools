@@ -10,25 +10,33 @@ if [ -z "$1" ]; then
     exit 1
 fi
 
+# Ordner dieses Skripts ermitteln, damit der Aufruf aus jedem Ordner funktioniert
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+
 # Umgebung festlegen anhand des Parameters
 ENV=$1
-CONF_FILE="db_${ENV}.conf"
+CONF_FILE="${SCRIPT_DIR}/db_${ENV}.conf"
 
 # Prüfen, ob die zugehörige Konfigurationsdatei existiert
 if [ ! -f "$CONF_FILE" ]; then
-    echo "Fehler: Konfigurationsdatei '$CONF_FILE' wurde nicht gefunden!"
+    echo "Fehler: Konfigurationsdatei 'db_${ENV}.conf' wurde nicht gefunden (gesucht in '${SCRIPT_DIR}')!"
     exit 1
 fi
 
 # Konfiguration einlesen (lädt die Variablen)
-source "./$CONF_FILE"
+source "$CONF_FILE"
 
 # Quellverzeichnis der Dumps: Default, optional überschrieben durch dbtools.conf
-SOURCE_DIR="../sql-dumps"
-if [ -f "./dbtools.conf" ]; then
-    source "./dbtools.conf"
-    SOURCE_DIR="$DUMP_DIR"
+# (relativer Pfad gilt relativ zum Skript-Ordner)
+DUMP_DIR="${SCRIPT_DIR}/../sql-dumps"
+if [ -f "${SCRIPT_DIR}/dbtools.conf" ]; then
+    source "${SCRIPT_DIR}/dbtools.conf"
 fi
+case "$DUMP_DIR" in
+    /*) ;;
+    *) DUMP_DIR="${SCRIPT_DIR}/${DUMP_DIR}" ;;
+esac
+SOURCE_DIR="$DUMP_DIR"
 
 # Dump-Datei bestimmen:
 # - 2. Parameter endet auf .sql/.sql.gz -> als Dateiname behandeln
@@ -59,9 +67,9 @@ if [ -n "$2" ]; then
             FILE="${DUMPS[$((SELECTION - 1))]}"
             ;;
         *)
-            SOURCE_CONF="db_${2}.conf"
+            SOURCE_CONF="${SCRIPT_DIR}/db_${2}.conf"
             if [ ! -f "$SOURCE_CONF" ]; then
-                echo "Fehler: '$2' ist weder eine Dump-Datei noch wurde '$SOURCE_CONF' gefunden!"
+                echo "Fehler: '$2' ist weder eine Dump-Datei noch wurde 'db_${2}.conf' gefunden!"
                 exit 1
             fi
             SOURCE_PREFIX=$(grep -E '^PREFIX=' "$SOURCE_CONF" | head -n 1 | cut -d '=' -f2- | tr -d '"')
