@@ -1,5 +1,5 @@
 # Gemeinsame Testhilfen, wird von den test_*.sh per source geladen.
-# Die Tests brauchen keine echte Datenbank: mysql und mysqldump werden durch Stubs
+# Die Tests brauchen keine echte Datenbank: mysql, mysqldump und ddev werden durch Stubs
 # aus tests/stubs ersetzt, gearbeitet wird in einem Wegwerf-Ordner.
 
 TESTS_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -17,7 +17,8 @@ setup() {
     printf 'DB_HOST="h"\nDB_USER="u"\nDB_PASS="p"\nDB_NAME="n2"\nPREFIX="proj-other"\n' > "$T/tools/db_other.conf"
     export PATH="$STUBS:$PATH"
     export STUB_MYSQL_OUT="$T/mysql-in.sql"
-    unset STUB_DUMP_FAIL STUB_DUMP_SLEEP STUB_MYSQL_FAIL
+    export STUB_DDEV_OUT="$T/ddev-in.sql" STUB_DDEV_ARGS="$T/ddev-args"
+    unset STUB_DUMP_FAIL STUB_DUMP_SLEEP STUB_MYSQL_FAIL STUB_DDEV_FAIL
 }
 
 # ok "Beschreibung" "Bedingung": Bedingung per eval auswerten und Ergebnis ausgeben

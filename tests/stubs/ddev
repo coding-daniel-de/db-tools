@@ -1,0 +1,5 @@
+#!/bin/bash
+echo "$*" > "$STUB_DDEV_ARGS"
+cat > "$STUB_DDEV_OUT"
+[ -n "$STUB_DDEV_FAIL" ] && { echo "ddev: stub fehler" >&2; exit 1; }
+exit 0
