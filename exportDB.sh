@@ -11,30 +11,10 @@ fi
 # Ordner dieses Skripts ermitteln, damit der Aufruf aus jedem Ordner funktioniert
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
-# Umgebung festlegen anhand des Parameters
-ENV=$1
-CONF_FILE="${SCRIPT_DIR}/db_${ENV}.conf"
+# Gemeinsame Funktionen laden
+source "${SCRIPT_DIR}/dbtools-lib.sh" || exit 1
 
-# Prüfen, ob die zugehörige Konfigurationsdatei existiert
-if [ ! -f "$CONF_FILE" ]; then
-    echo "Fehler: Konfigurationsdatei 'db_${ENV}.conf' wurde nicht gefunden (gesucht in '${SCRIPT_DIR}')!"
-    exit 1
-fi
-
-# Konfiguration einlesen (lädt die Variablen)
-source "$CONF_FILE"
-
-# Dump-Verzeichnis: Default, optional überschrieben durch dbtools.conf
-# (relativer Pfad gilt relativ zum Skript-Ordner)
-DUMP_DIR="${SCRIPT_DIR}/../sql-dumps"
-if [ -f "${SCRIPT_DIR}/dbtools.conf" ]; then
-    source "${SCRIPT_DIR}/dbtools.conf"
-fi
-case "$DUMP_DIR" in
-    /*) ;;
-    *) DUMP_DIR="${SCRIPT_DIR}/${DUMP_DIR}" ;;
-esac
-TARGET_DIR="$DUMP_DIR"
+# --- Funktionen ---
 
 # Passwort zweimal abfragen (ohne Anzeige) und in ENC_PASS ablegen.
 # Rückgabe 1 bei leerem Passwort oder wenn beide Eingaben nicht übereinstimmen.
@@ -54,11 +34,47 @@ ask_new_password() {
     fi
 }
 
+# Dump als gzip-Strom auf stdout ausgeben
+# tail -n +2 Entfernt Zeile 1 (MariaDB Sandbox-Kommentar), um '\-' Importfehler auf anderen Systemen zu verhindern
+dump_sql() {
+    mysqldump -h "$DB_HOST" -u "$DB_USER" -v --opt "$DB_NAME" | tail -n +2 | gzip
+}
+
+# Bei Abbruch (Ctrl+C, SIGTERM) Passwörter leeren und die unvollständige Datei löschen
+abort_export() {
+    unset MYSQL_PWD ENC_PASS
+    rm -f "${TARGET_DIR}/${FILE}"
+    # Ausgabe nach stderr, denn stdout ist beim unverschlüsselten Export in die Dump-Datei umgeleitet
+    echo >&2
+    echo "Export abgebrochen, die unvollständige Datei wurde gelöscht!" >&2
+    exit 130
+}
+
+# --- Ablauf ---
+
+# Umgebung festlegen anhand des Parameters
+ENV=$1
+CONF_FILE="${SCRIPT_DIR}/db_${ENV}.conf"
+
+# Prüfen, ob die zugehörige Konfigurationsdatei existiert
+if [ ! -f "$CONF_FILE" ]; then
+    echo "Fehler: Konfigurationsdatei 'db_${ENV}.conf' wurde nicht gefunden (gesucht in '${SCRIPT_DIR}')!"
+    exit 1
+fi
+
+# Konfiguration einlesen (lädt die Variablen)
+source "$CONF_FILE"
+
+# Dump-Verzeichnis ermitteln (Default oder dbtools.conf)
+resolve_dump_dir
+TARGET_DIR="$DUMP_DIR"
+
 # Verschlüsselung optional abfragen
 ENCRYPT=0
 read -r -p "Dump verschlüsseln? (y/N): " ENCRYPT_ANSWER
 if [[ "$ENCRYPT_ANSWER" =~ ^[yY]$ ]]; then
     ENCRYPT=1
+    require_gpg || exit 1
     if ! ask_new_password; then
         unset ENC_PASS
         exit 1
@@ -82,18 +98,21 @@ export MYSQL_PWD="$DB_PASS"
 # Schlägt ein Schritt der Pipe fehl, soll das nicht unbemerkt bleiben
 set -o pipefail
 
+# Bei Abbruch aufräumen
+trap abort_export INT TERM
+
 # Dump ausführen
-# tail -n +2 Entfernt Zeile 1 (MariaDB Sandbox-Kommentar), um '\-' Importfehler auf anderen Systemen zu verhindern
 # Das gpg-Passwort geht nur über den Dateideskriptor 3 (nie als Argument, sonst per ps sichtbar)
 if [ "$ENCRYPT" -eq 1 ]; then
-    mysqldump -h "$DB_HOST" -u "$DB_USER" -v --opt "$DB_NAME" | tail -n +2 | gzip \
+    dump_sql \
         | gpg --batch --yes --quiet --pinentry-mode loopback --no-symkey-cache \
               --passphrase-fd 3 --symmetric --cipher-algo AES256 --compress-algo none \
               3< <(printf '%s' "$ENC_PASS") > "${TARGET_DIR}/${FILE}"
 else
-    mysqldump -h "$DB_HOST" -u "$DB_USER" -v --opt "$DB_NAME" | tail -n +2 | gzip > "${TARGET_DIR}/${FILE}"
+    dump_sql > "${TARGET_DIR}/${FILE}"
 fi
 STATUS=$?
+trap - INT TERM
 
 # Passwort-Variablen wieder leeren (auch im Fehlerfall)
 unset MYSQL_PWD

@@ -13,6 +13,24 @@ fi
 # Ordner dieses Skripts ermitteln, damit der Aufruf aus jedem Ordner funktioniert
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
+# Gemeinsame Funktionen laden
+source "${SCRIPT_DIR}/dbtools-lib.sh" || exit 1
+
+# --- Funktionen ---
+
+# Neuesten Dump (.sql.gz oder .sql.gz.gpg) zum Präfix $1 in SOURCE_DIR suchen und in FILE ablegen.
+# $2 beschreibt die Suche für die Fehlermeldung. Bricht das Skript ab, wenn nichts gefunden wird.
+find_latest_dump() {
+    FILE=$(ls -t "${SOURCE_DIR}/${1}"-*.sql.gz "${SOURCE_DIR}/${1}"-*.sql.gz.gpg 2>/dev/null | head -n 1)
+    if [ -z "$FILE" ]; then
+        echo "Fehler: Kein Dump für $2 in '${SOURCE_DIR}' gefunden!"
+        exit 1
+    fi
+    echo "Verwende Dump: ${FILE}"
+}
+
+# --- Ablauf ---
+
 # Umgebung festlegen anhand des Parameters
 ENV=$1
 CONF_FILE="${SCRIPT_DIR}/db_${ENV}.conf"
@@ -26,16 +44,8 @@ fi
 # Konfiguration einlesen (lädt die Variablen)
 source "$CONF_FILE"
 
-# Quellverzeichnis der Dumps: Default, optional überschrieben durch dbtools.conf
-# (relativer Pfad gilt relativ zum Skript-Ordner)
-DUMP_DIR="${SCRIPT_DIR}/../sql-dumps"
-if [ -f "${SCRIPT_DIR}/dbtools.conf" ]; then
-    source "${SCRIPT_DIR}/dbtools.conf"
-fi
-case "$DUMP_DIR" in
-    /*) ;;
-    *) DUMP_DIR="${SCRIPT_DIR}/${DUMP_DIR}" ;;
-esac
+# Quellverzeichnis der Dumps ermitteln (Default oder dbtools.conf)
+resolve_dump_dir
 SOURCE_DIR="$DUMP_DIR"
 
 # Dump-Datei bestimmen:
@@ -77,21 +87,11 @@ if [ -n "$2" ]; then
                 echo "Fehler: In '$SOURCE_CONF' wurde kein PREFIX gefunden!"
                 exit 1
             fi
-            FILE=$(ls -t "${SOURCE_DIR}/${SOURCE_PREFIX}"-*.sql.gz "${SOURCE_DIR}/${SOURCE_PREFIX}"-*.sql.gz.gpg 2>/dev/null | head -n 1)
-            if [ -z "$FILE" ]; then
-                echo "Fehler: Kein Dump für Umgebung '$2' (Präfix '${SOURCE_PREFIX}') in '${SOURCE_DIR}' gefunden!"
-                exit 1
-            fi
-            echo "Verwende Dump: ${FILE}"
+            find_latest_dump "$SOURCE_PREFIX" "Umgebung '$2' (Präfix '${SOURCE_PREFIX}')"
             ;;
     esac
 else
-    FILE=$(ls -t "${SOURCE_DIR}/${PREFIX}"-*.sql.gz "${SOURCE_DIR}/${PREFIX}"-*.sql.gz.gpg 2>/dev/null | head -n 1)
-    if [ -z "$FILE" ]; then
-        echo "Fehler: Kein Dump für Präfix '${PREFIX}' in '${SOURCE_DIR}' gefunden!"
-        exit 1
-    fi
-    echo "Verwende Dump: ${FILE}"
+    find_latest_dump "$PREFIX" "Präfix '${PREFIX}'"
 fi
 
 # Prüfen, ob die Dump-Datei existiert
@@ -106,6 +106,7 @@ fi
 # Deshalb werden die ersten Bytes entschlüsselt und auf die gzip-Magic-Bytes (1f 8b) geprüft.
 # Das Passwort geht nur über den Dateideskriptor 3 an gpg (nie als Argument, sonst per ps sichtbar).
 if [[ "$FILE" == *.gpg ]]; then
+    require_gpg || exit 1
     IFS= read -r -s -p "Passwort für '$(basename "$FILE")': " DUMP_PASS
     echo
     MAGIC=$(gpg --batch --quiet --pinentry-mode loopback --no-symkey-cache --passphrase-fd 3 -d "$FILE" \
@@ -147,13 +148,14 @@ else
     mysql -h "$DB_HOST" -u "$DB_USER" "$DB_NAME" < "$FILE"
 fi
 
-# Status der Pipeline prüfen
-if [ $? -eq 0 ]; then
+# Status der Pipeline sichern und Passwort-Variablen wieder leeren
+STATUS=$?
+unset MYSQL_PWD
+unset DUMP_PASS
+
+if [ "$STATUS" -eq 0 ]; then
     echo "Erfolgreich importiert aus: ${FILE}"
 else
     echo "Fehler: Beim Import ist ein Problem aufgetreten!"
+    exit 1
 fi
-
-# Passwort-Variablen wieder leeren
-unset MYSQL_PWD
-unset DUMP_PASS
