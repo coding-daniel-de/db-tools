@@ -112,7 +112,7 @@ Mit `decrypt` (oder der Kurzform `decryptDB.sh`) wird ein Dump nur entschlüssel
 ./decryptDB.sh pfad/dump.sql.gz.gpg
 ```
 
-`./decryptDB.sh ...` ist gleichbedeutend mit `./importDB.sh decrypt ...`. Die Quelle ist eine Quell-Umgebung, ein Dateiname oder `list` (ohne Angabe wird `list` gezeigt). Existiert die Zieldatei schon, wird vor dem Überschreiben nachgefragt. Ein nicht verschlüsselter Dump wird ohne `--gunzip` mit einer Meldung abgelehnt, mit `--gunzip` wird er nur entpackt.
+`./decryptDB.sh ...` ist gleichbedeutend mit `./importDB.sh decrypt ...`. Die Quelle ist eine Quell-Umgebung, ein Dateiname oder `list` (ohne Angabe wird `list` gezeigt). Existiert die Zieldatei schon, wird vor dem Überschreiben nachgefragt. Ein nicht verschlüsselter Dump wird ohne `--gunzip` mit einer Meldung abgelehnt, mit `--gunzip` wird er nur entpackt (ist er gar nicht komprimiert, z. B. eine `.sql`, gibt es nichts zu tun und das Skript meldet das). Die Ergebnisdatei ist nur für den Besitzer les- und schreibbar (Rechte 600), weil sie den Inhalt der Datenbank im Klartext enthält.
 
 Standardmäßig bleibt die Datei komprimiert (`.sql.gz`), denn sie ist entpackt um ein Vielfaches größer und lässt sich direkt ansehen, ohne sie zu entpacken:
 
