@@ -1,14 +1,35 @@
 #!/bin/bash
 
+# Optionen (--...) an beliebiger Stelle herausnehmen, danach gelten nur noch die Positionsparameter
+GUNZIP=0
+POSITIONAL=()
+for ARG in "$@"; do
+    case "$ARG" in
+        --gunzip)
+            GUNZIP=1
+            ;;
+        --*)
+            echo "Fehler: Unbekannte Option '${ARG}'!"
+            exit 1
+            ;;
+        *)
+            POSITIONAL+=("$ARG")
+            ;;
+    esac
+done
+set -- "${POSITIONAL[@]}"
+
 # Hilfe-Text anzeigen, wenn der erste Parameter komplett fehlt
 if [ -z "$1" ]; then
     echo "Fehler: Bitte gib die Umgebung an!"
-    echo "Nutzung: $0 [ziel-umgebung | ddev] [optional: dateiname.sql[.gz[.gpg]] | quell-umgebung | list]"
+    echo "Nutzung: $0 [ziel-umgebung | ddev | decrypt] [optional: dateiname.sql[.gz[.gpg]] | quell-umgebung | list] [--gunzip]"
     echo "Beispiel: $0 dev"
     echo "Beispiel: $0 update dev    (neuesten dev-Dump nach update importieren)"
     echo "Beispiel: $0 update list   (Dump aus einer Liste aller Dumps auswählen)"
     echo "Beispiel: $0 ddev dev      (dev-Dump in das DDEV-Projekt im aktuellen Ordner importieren)"
     echo "Beispiel: $0 ddev list     (dito, Dump aus einer Liste auswählen)"
+    echo "Beispiel: $0 decrypt list  (Dump nur entschlüsseln, Ergebnis im aktuellen Ordner)"
+    echo "Beispiel: $0 decrypt dev --gunzip   (entschlüsseln und entpacken, --gunzip nur bei decrypt)"
     exit 1
 fi
 
@@ -20,9 +41,17 @@ source "${SCRIPT_DIR}/dbtools-lib.sh" || exit 1
 
 # --- Funktionen ---
 
-# Reservierte Namen für den ersten Parameter (keine Umgebung mit db_<name>.conf)
+# Zweck eines reservierten Namens für den ersten Parameter (keine Umgebung mit db_<name>.conf).
+# Gibt für normale Umgebungen nichts aus.
+reserved_purpose() {
+    case "$1" in
+        ddev) echo "den Import in das DDEV-Projekt im aktuellen Ordner" ;;
+        decrypt) echo "das Entschlüsseln von Dumps" ;;
+    esac
+}
+
 is_reserved_env() {
-    [ "$1" = "ddev" ]
+    [ -n "$(reserved_purpose "$1")" ]
 }
 
 # Dump $1 mit dem Passwort aus DUMP_PASS entschlüsseln (Ausgabe auf stdout).
@@ -52,7 +81,7 @@ CONF_FILE="${SCRIPT_DIR}/db_${ENV}.conf"
 if is_reserved_env "$ENV"; then
     # Reservierter Name: eine gleichnamige Config würde ignoriert, deshalb vorher abbrechen
     if [ -f "$CONF_FILE" ]; then
-        echo "Fehler: '${ENV}' ist ein reservierter Name für den Import in das DDEV-Projekt im aktuellen Ordner."
+        echo "Fehler: '${ENV}' ist ein reservierter Name für $(reserved_purpose "$ENV")."
         echo "Die Datei 'db_${ENV}.conf' würde ignoriert. Bitte umbenennen oder löschen."
         exit 1
     fi
@@ -65,6 +94,10 @@ else
 
     # Konfiguration einlesen (lädt die Variablen)
     source "$CONF_FILE"
+fi
+
+if [ "$GUNZIP" -eq 1 ] && [ "$ENV" != "decrypt" ]; then
+    echo "Hinweis: --gunzip wird beim Import nicht benötigt, es wird automatisch entpackt."
 fi
 
 # Quellverzeichnis der Dumps ermitteln (Default oder dbtools.conf)
@@ -128,6 +161,32 @@ if [ ! -f "$FILE" ]; then
     exit 1
 fi
 
+# decrypt: Zieldatei im aktuellen Ordner festlegen und Rückfrage bei vorhandener Datei,
+# bevor ein Passwort abgefragt wird
+if [ "$ENV" = "decrypt" ]; then
+    OUT="$(basename "$FILE")"
+    if [[ "$FILE" == *.gpg ]]; then
+        OUT="${OUT%.gpg}"
+    elif [ "$GUNZIP" -eq 0 ]; then
+        echo "Fehler: Dump ist nicht verschlüsselt, nichts zu tun (mit --gunzip nur entpacken)!"
+        exit 1
+    fi
+    if [ "$GUNZIP" -eq 1 ]; then
+        if [[ "$OUT" != *.gz ]]; then
+            echo "Fehler: Dump ist nicht komprimiert, nichts zu tun!"
+            exit 1
+        fi
+        OUT="${OUT%.gz}"
+    fi
+    if [ -e "$OUT" ]; then
+        read -p "Datei '${OUT}' existiert bereits. Überschreiben? (y/N): " CONFIRM
+        if [[ ! "$CONFIRM" =~ ^[yY]$ ]]; then
+            echo "Abgebrochen."
+            exit 0
+        fi
+    fi
+fi
+
 # Passwort für verschlüsselte Dumps abfragen und sofort prüfen, noch vor der Sicherheitsabfrage.
 # gpg erkennt ein falsches Passwort nur mit einer 16-Bit-Kontrollsumme (etwa 1 von 65000 falschen
 # Passwörtern rutscht durch), die Integritätsprüfung am Dateiende greift erst nach dem Import.
@@ -139,9 +198,48 @@ if [[ "$FILE" == *.gpg ]]; then
     MAGIC=$(gpg_decrypt "$FILE" 2>/dev/null | head -c 2 | od -An -tx1 | tr -d ' ')
     if [ "$MAGIC" != "1f8b" ]; then
         unset DUMP_PASS
-        echo "Fehler: Falsches Passwort oder beschädigter Dump! Die Datenbank wurde nicht angefasst."
+        if [ "$ENV" = "decrypt" ]; then
+            echo "Fehler: Falsches Passwort oder beschädigter Dump!"
+        else
+            echo "Fehler: Falsches Passwort oder beschädigter Dump! Die Datenbank wurde nicht angefasst."
+        fi
         exit 1
     fi
+fi
+
+# decrypt: Ergebnis erst in eine Temp-Datei (Rechte 600) schreiben, damit bei einem Fehler
+# oder Abbruch keine halbe Datei zurückbleibt
+if [ "$ENV" = "decrypt" ]; then
+    set -o pipefail
+    TMP=$(mktemp "./${OUT}.XXXXXX") || exit 1
+    trap 'rm -f "$TMP"; exit 130' INT TERM
+    if [[ "$FILE" == *.gpg && "$GUNZIP" -eq 1 ]]; then
+        gpg_decrypt "$FILE" | gunzip > "$TMP"
+    elif [[ "$FILE" == *.gpg ]]; then
+        gpg_decrypt "$FILE" > "$TMP"
+    else
+        gunzip -c "$FILE" > "$TMP"
+    fi
+    STATUS=$?
+    unset DUMP_PASS
+    if [ "$STATUS" -ne 0 ]; then
+        rm -f "$TMP"
+        echo "Fehler: Beim Entschlüsseln ist ein Problem aufgetreten!"
+        exit 1
+    fi
+    mv -f "$TMP" "$OUT"
+    trap - INT TERM
+    if [[ "$FILE" != *.gpg ]]; then
+        echo "Entpackt nach: ./${OUT}"
+    elif [ "$GUNZIP" -eq 1 ]; then
+        echo "Entschlüsselt und entpackt nach: ./${OUT}"
+    else
+        echo "Entschlüsselt nach: ./${OUT}"
+    fi
+    if [ "$GUNZIP" -eq 0 ]; then
+        echo "Ansehen ohne Entpacken: zless ${OUT}  |  zgrep \"suchbegriff\" ${OUT}"
+    fi
+    exit 0
 fi
 
 # Sicherheitsabfrage vor dem Import (besonders wichtig bei 'live')
