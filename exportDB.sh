@@ -98,7 +98,9 @@ export MYSQL_PWD="$DB_PASS"
 # Schlägt ein Schritt der Pipe fehl, soll das nicht unbemerkt bleiben
 set -o pipefail
 
-# Bei Abbruch aufräumen
+# Bei Abbruch aufräumen. Greift sofort bei Ctrl+C (das Signal trifft die ganze Pipeline).
+# Ein gezieltes "kill <pid>" nur auf dieses Skript wirkt erst nach Ende des Dumps, danach wird
+# die Datei gelöscht.
 trap abort_export INT TERM
 
 # Dump ausführen
