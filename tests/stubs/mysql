@@ -1,0 +1,4 @@
+#!/bin/bash
+cat > "$STUB_MYSQL_OUT"
+[ -n "$STUB_MYSQL_FAIL" ] && exit 1
+exit 0

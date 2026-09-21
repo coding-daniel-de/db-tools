@@ -1,0 +1,7 @@
+#!/bin/bash
+[ -n "$STUB_DUMP_FAIL" ] && { echo "mysqldump: stub fehler" >&2; exit 1; }
+echo "-- MariaDB sandbox comment"
+echo "CREATE TABLE t (id int);"
+echo "INSERT INTO t VALUES (1);"
+[ -n "$STUB_DUMP_SLEEP" ] && sleep "$STUB_DUMP_SLEEP"
+exit 0
