@@ -6,5 +6,5 @@
 
 # Verzeichnis für SQL-Dumps. Tilde (~) wird von Bash in Anführungszeichen
 # NICHT aufgelöst, stattdessen $HOME verwenden, z. B.:
-#   DUMP_DIR="$HOME/sqldumps"
+#   DUMP_DIR="$HOME/sql-dumps"
 DUMP_DIR="../sql-dumps"
