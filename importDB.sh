@@ -2,11 +2,15 @@
 
 # Optionen (--...) an beliebiger Stelle herausnehmen, danach gelten nur noch die Positionsparameter
 GUNZIP=0
+PATCH=0
 POSITIONAL=()
 for ARG in "$@"; do
     case "$ARG" in
         --gunzip)
             GUNZIP=1
+            ;;
+        --patch)
+            PATCH=1
             ;;
         --*)
             echo "Fehler: Unbekannte Option '${ARG}'!"
@@ -22,7 +26,7 @@ set -- "${POSITIONAL[@]}"
 # Hilfe-Text anzeigen, wenn der erste Parameter komplett fehlt
 if [ -z "$1" ]; then
     echo "Fehler: Bitte gib die Umgebung an!"
-    echo "Nutzung: $0 [ziel-umgebung | ddev | decrypt] [optional: dateiname.sql[.gz[.gpg]] | quell-umgebung | list] [--gunzip]"
+    echo "Nutzung: $0 [ziel-umgebung | ddev | decrypt] [optional: dateiname.sql[.gz[.gpg]] | quell-umgebung | list] [--gunzip] [--patch]"
     echo "Beispiel: $0 dev"
     echo "Beispiel: $0 update dev    (neuesten dev-Dump nach update importieren)"
     echo "Beispiel: $0 update list   (Dump aus einer Liste aller Dumps auswählen)"
@@ -30,6 +34,7 @@ if [ -z "$1" ]; then
     echo "Beispiel: $0 ddev list     (dito, Dump aus einer Liste auswählen)"
     echo "Beispiel: $0 decrypt list  (Dump nur entschlüsseln, Ergebnis im aktuellen Ordner)"
     echo "Beispiel: $0 decrypt dev --gunzip   (entschlüsseln und entpacken, --gunzip nur bei decrypt)"
+    echo "Beispiel: $0 live aenderungen.sql --patch   (nur die Befehle der Datei ausführen, DB wird nicht geleert)"
     exit 1
 fi
 
@@ -72,6 +77,72 @@ find_latest_dump() {
     echo "Verwende Dump: ${FILE}"
 }
 
+# Inhalt des Dumps FILE entschlüsselt und entpackt auf stdout ausgeben.
+# Die Art des Dumps muss vorher mit detect_dump_kind in DUMP_KIND abgelegt worden sein.
+dump_content() {
+    case "$DUMP_KIND" in
+        gpg) gpg_decrypt "$FILE" | gunzip ;;
+        gzip) gunzip -c "$FILE" ;;
+        *) cat "$FILE" ;;
+    esac
+}
+
+# Art des Dumps FILE ermitteln, in DUMP_KIND ablegen (gpg, gzip oder plain) und melden.
+# gzip wird an den Magic-Bytes erkannt (die ersten beiden Bytes einer gzip-Datei sind immer 1f 8b).
+detect_dump_kind() {
+    if [[ "$FILE" == *.gpg ]]; then
+        DUMP_KIND=gpg
+        echo "Erkannt: verschlüsselter, gzip-komprimierter Dump"
+    elif [ "$(head -c 2 "$FILE" | od -An -tx1 | tr -d ' ')" = "1f8b" ]; then
+        DUMP_KIND=gzip
+        echo "Erkannt: gzip-komprimierter Dump"
+    else
+        DUMP_KIND=plain
+        echo "Erkannt: unkomprimierter SQL-Dump"
+    fi
+}
+
+# Tabellen, Views und Sequenzen der Ziel-DB abfragen und in DB_OBJECTS ablegen
+# (je Zeile "TYP<Tab>NAME"). Bricht bei einem Verbindungsfehler das Skript ab.
+load_db_objects() {
+    local OUTPUT
+    if ! OUTPUT=$(mysql -h "$DB_HOST" -u "$DB_USER" -N -B -r \
+        -e "SELECT TABLE_TYPE, TABLE_NAME FROM information_schema.TABLES WHERE TABLE_SCHEMA = DATABASE()" \
+        "$DB_NAME"); then
+        unset MYSQL_PWD DUMP_PASS
+        echo "Fehler: Die Tabellen der Datenbank [ $DB_NAME ] konnten nicht ermittelt werden! Die Datenbank wurde nicht angefasst."
+        exit 1
+    fi
+    DB_OBJECTS=()
+    if [ -n "$OUTPUT" ]; then
+        mapfile -t DB_OBJECTS <<< "$OUTPUT"
+    fi
+}
+
+# Namen $1 für SQL in Backticks setzen. Backticks im Namen werden verdoppelt,
+# damit der Name sicher in `...` steht.
+quote_ident() {
+    echo "\`${1//\`/\`\`}\`"
+}
+
+# DROP-Befehle für alle Objekte in DB_OBJECTS ausgeben, Views zuerst
+drop_statements() {
+    local TYPE NAME LINE
+    echo "SET FOREIGN_KEY_CHECKS=0;"
+    for LINE in "${DB_OBJECTS[@]}"; do
+        IFS=$'\t' read -r TYPE NAME <<< "$LINE"
+        [ "$TYPE" = "VIEW" ] && echo "DROP VIEW IF EXISTS $(quote_ident "$NAME");"
+    done
+    for LINE in "${DB_OBJECTS[@]}"; do
+        IFS=$'\t' read -r TYPE NAME <<< "$LINE"
+        case "$TYPE" in
+            VIEW) ;;
+            SEQUENCE) echo "DROP SEQUENCE IF EXISTS $(quote_ident "$NAME");" ;;
+            *) echo "DROP TABLE IF EXISTS $(quote_ident "$NAME");" ;;
+        esac
+    done
+}
+
 # --- Ablauf ---
 
 # Umgebung festlegen anhand des Parameters
@@ -98,6 +169,35 @@ fi
 
 if [ "$GUNZIP" -eq 1 ] && [ "$ENV" != "decrypt" ]; then
     echo "Hinweis: --gunzip wird beim Import nicht benötigt, es wird automatisch entpackt."
+fi
+
+# --patch nur beim Import und nur mit einer konkreten .sql-Datei, damit nicht versehentlich
+# ein kompletter Dump (neuester, aus der Liste, aus einer Quell-Umgebung) als Patch läuft.
+# Dumps sind immer komprimiert, deshalb schließt das auch die meisten Vertipper aus.
+if [ "$PATCH" -eq 1 ]; then
+    if [ "$ENV" = "decrypt" ]; then
+        echo "Fehler: --patch gibt es nur beim Import, nicht bei decrypt!"
+        exit 1
+    fi
+    case "$2" in
+        *.sql) ;;
+        *.sql.gz|*.sql.gz.gpg)
+            echo "Fehler: --patch nimmt nur .sql-Dateien! Komprimierte oder verschlüsselte Dateien vorher mit 'decryptDB.sh $2 --gunzip' entpacken."
+            exit 1
+            ;;
+        *)
+            echo "Fehler: --patch braucht als 2. Parameter eine .sql-Datei!"
+            exit 1
+            ;;
+    esac
+fi
+
+# Voller Import in eine normale Umgebung: die Ziel-DB wird vorher komplett geleert, damit danach
+# exakt der Stand des Dumps vorliegt (sonst blieben Tabellen, die nur in der Ziel-DB existieren,
+# erhalten). DDEV leert die Datenbank bei import-db selbst, bei --patch wird nichts geleert.
+LEEREN=0
+if [ "$ENV" != "ddev" ] && [ "$PATCH" -eq 0 ]; then
+    LEEREN=1
 fi
 
 # Quellverzeichnis der Dumps ermitteln (Default oder dbtools.conf)
@@ -242,42 +342,90 @@ if [ "$ENV" = "decrypt" ]; then
     exit 0
 fi
 
+detect_dump_kind
+
+# --patch prüft oben nur die Endung. Ist eine .sql-Datei in Wahrheit komprimiert (etwa ein
+# umbenannter Dump), zeigte die Vorschau nur Binärdaten, deshalb auch das ablehnen.
+if [ "$PATCH" -eq 1 ] && [ "$DUMP_KIND" != "plain" ]; then
+    echo "Fehler: --patch nimmt nur .sql-Dateien mit unkomprimiertem Inhalt! '${FILE}' ist gzip-komprimiert."
+    exit 1
+fi
+
+# Für mysql das Passwort sicher bereitstellen (nie als Argument, sonst per ps sichtbar)
+if [ "$ENV" != "ddev" ]; then
+    export MYSQL_PWD="$DB_PASS"
+fi
+
+# Beim Leeren die Objekte schon vor der Sicherheitsabfrage ermitteln, damit sie ihre Anzahl
+# nennen kann und ein Verbindungsfehler auffällt, bevor etwas passiert
+if [ "$LEEREN" -eq 1 ]; then
+    load_db_objects
+fi
+
+# Bei --patch den Inhalt der Datei vor der Sicherheitsabfrage zeigen. Lange Dateien und lange
+# Zeilen werden gekürzt, damit ein versehentlich angegebener Dump (eine Tabelle pro INSERT-Zeile,
+# oft mehrere MB) die Warnung nicht aus dem Terminal schiebt.
+if [ "$PATCH" -eq 1 ]; then
+    PREVIEW_LINES=30
+    PREVIEW_CHARS=200
+    # awk statt wc -l, damit eine letzte Zeile ohne Zeilenumbruch mitgezählt wird
+    TOTAL_LINES=$(awk 'END { print NR }' "$FILE")
+    echo "Inhalt von '${FILE}' (${TOTAL_LINES} Zeilen):"
+    echo "----------------------------------------"
+    head -n "$PREVIEW_LINES" "$FILE" \
+        | awk -v max="$PREVIEW_CHARS" '{ if (length($0) > max) print substr($0, 1, max) "…"; else print }'
+    echo "----------------------------------------"
+    if [ "$TOTAL_LINES" -gt "$PREVIEW_LINES" ]; then
+        echo "(nur die ersten ${PREVIEW_LINES} von ${TOTAL_LINES} Zeilen angezeigt)"
+    fi
+fi
+
 # Sicherheitsabfrage vor dem Import (besonders wichtig bei 'live')
-if [ "$ENV" = "ddev" ]; then
-    echo "ACHTUNG: Die Datenbank des DDEV-Projekts im aktuellen Ordner ($PWD) wird mit dem Inhalt von '${FILE}' ÜBERSCHRIEBEN!"
+if [ "$PATCH" -eq 1 ]; then
+    if [ "$ENV" = "ddev" ]; then
+        echo "ACHTUNG: Die SQL-Befehle aus '${FILE}' werden auf der Datenbank des DDEV-Projekts im aktuellen Ordner ($PWD) AUSGEFÜHRT!"
+    else
+        echo "ACHTUNG: Die SQL-Befehle aus '${FILE}' werden auf der Datenbank [ $DB_NAME ] (Umgebung: $ENV) AUSGEFÜHRT!"
+    fi
+    echo "Die Datenbank wird vorher nicht geleert."
+elif [ "$ENV" = "ddev" ]; then
+    echo "ACHTUNG: Die Datenbank des DDEV-Projekts im aktuellen Ordner ($PWD) wird GELEERT und durch den Inhalt von '${FILE}' ERSETZT!"
+elif [ ${#DB_OBJECTS[@]} -eq 0 ]; then
+    echo "ACHTUNG: Die Datenbank [ $DB_NAME ] (Umgebung: $ENV) ist leer und wird mit dem Inhalt von '${FILE}' befüllt!"
 else
-    echo "ACHTUNG: Die Datenbank [ $DB_NAME ] (Umgebung: $ENV) wird mit dem Inhalt von '${FILE}' ÜBERSCHRIEBEN!"
+    echo "ACHTUNG: Alle ${#DB_OBJECTS[@]} Tabellen/Views der Datenbank [ $DB_NAME ] (Umgebung: $ENV) werden GELÖSCHT und durch den Inhalt von '${FILE}' ERSETZT!"
 fi
 read -p "Bist du dir absolut sicher? (y/N): " CONFIRM
 if [[ ! "$CONFIRM" =~ ^[yY]$ ]]; then
-    unset DUMP_PASS
+    unset MYSQL_PWD DUMP_PASS
     echo "Import abgebrochen."
     exit 0
 fi
 
+# Liste nach der Bestätigung neu holen, damit auch Tabellen gelöscht werden, die entstanden sind,
+# während die Abfrage offen war
+if [ "$LEEREN" -eq 1 ]; then
+    load_db_objects
+fi
+
 echo "Starte Import für Umgebung: [$ENV] aus Datei: $FILE ..."
 
-# Import-Kommando festlegen: DDEV liest den Dump von stdin, für mysql das Passwort sicher bereitstellen
+# Import-Kommando festlegen: DDEV liest den Dump von stdin und leert die DB vorher, außer bei --patch
 if [ "$ENV" = "ddev" ]; then
     IMPORT_CMD=(ddev import-db)
+    [ "$PATCH" -eq 1 ] && IMPORT_CMD+=(--no-drop)
 else
-    export MYSQL_PWD="$DB_PASS"
     IMPORT_CMD=(mysql -h "$DB_HOST" -u "$DB_USER" "$DB_NAME")
 fi
 
 # Schlägt ein Schritt der Pipe fehl (z. B. gpg oder gunzip), soll das nicht als Erfolg durchgehen
 set -o pipefail
 
-if [[ "$FILE" == *.gpg ]]; then
-    echo "Erkannt: verschlüsselter, gzip-komprimierter Dump"
-    gpg_decrypt "$FILE" | gunzip | "${IMPORT_CMD[@]}"
-elif [ "$(head -c 2 "$FILE" | od -An -tx1 | tr -d ' ')" = "1f8b" ]; then
-    # Anhand der Magic-Bytes erkannt (die ersten beiden Bytes einer gzip-Datei sind immer 1f 8b)
-    echo "Erkannt: gzip-komprimierter Dump"
-    gunzip -c "$FILE" | "${IMPORT_CMD[@]}"
+# Beim Leeren laufen die DROP-Befehle in derselben mysql-Sitzung direkt vor dem Dump
+if [ "$LEEREN" -eq 1 ]; then
+    { drop_statements; dump_content; } | "${IMPORT_CMD[@]}"
 else
-    echo "Erkannt: unkomprimierter SQL-Dump"
-    "${IMPORT_CMD[@]}" < "$FILE"
+    dump_content | "${IMPORT_CMD[@]}"
 fi
 
 # Status der Pipeline sichern und Passwort-Variablen wieder leeren

@@ -1,4 +1,19 @@
 #!/bin/bash
+# Abfrage per -e (Tabellenliste der Ziel-DB): Inhalt von STUB_MYSQL_TABLES ausgeben.
+# Ab der zweiten Abfrage wird STUB_MYSQL_TABLES_LATER verwendet (falls gesetzt),
+# STUB_MYSQL_QUERY_FAIL_AT=<n> lässt nur die n-te Abfrage fehlschlagen.
+for ARG in "$@"; do
+    if [ "$ARG" = "-e" ]; then
+        echo x >> "$STUB_MYSQL_QUERIES"
+        N=$(wc -l < "$STUB_MYSQL_QUERIES")
+        [ -n "$STUB_MYSQL_QUERY_FAIL" ] && { echo "mysql: stub verbindungsfehler" >&2; exit 1; }
+        [ "$STUB_MYSQL_QUERY_FAIL_AT" = "$N" ] && { echo "mysql: stub verbindungsfehler" >&2; exit 1; }
+        TABLES="$STUB_MYSQL_TABLES"
+        [ "$N" -ge 2 ] && [ -n "$STUB_MYSQL_TABLES_LATER" ] && TABLES="$STUB_MYSQL_TABLES_LATER"
+        [ -n "$TABLES" ] && printf '%b\n' "$TABLES"
+        exit 0
+    fi
+done
 cat > "$STUB_MYSQL_OUT"
 [ -n "$STUB_MYSQL_FAIL" ] && exit 1
 exit 0

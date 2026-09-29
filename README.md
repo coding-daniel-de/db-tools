@@ -74,10 +74,31 @@ Alternativ kann mit `list` eine nach Datum sortierte Auswahl aller Dumps im Dump
 
 Vor jedem Import erfolgt eine Sicherheitsabfrage, da die Zieldatenbank überschrieben wird.
 
+#### Kompletter Austausch der Datenbank
+
+Ein Import tauscht die Zieldatenbank komplett aus: Vor dem Einspielen des Dumps werden alle Tabellen, Views und Sequenzen der Zieldatenbank gelöscht. Danach entspricht sie exakt dem Stand des Dumps. Ohne das Leeren blieben Tabellen erhalten, die nur in der Zieldatenbank existieren (z. B. von einer inzwischen entfernten Extension), weil ein Dump nur die Tabellen löscht und neu anlegt, die er selbst enthält.
+
+Die Sicherheitsabfrage nennt die Anzahl der Tabellen/Views, die gelöscht werden. Sie werden schon vor der Abfrage ermittelt, ein Verbindungsfehler bricht also ab, bevor etwas passiert. Nach der Bestätigung wird die Liste noch einmal geholt, damit auch Tabellen erfasst werden, die in der Zwischenzeit entstanden sind. Gelöscht wird dann in derselben `mysql`-Sitzung direkt vor dem Dump. Der DB-User braucht dafür kein Recht auf `DROP DATABASE`.
+
+Bricht der Import mittendrin ab (z. B. beschädigter Dump, Verbindungsabbruch), ist die Zieldatenbank leer oder nur teilweise befüllt. Vor einem Import auf `live` deshalb vorher ein Backup ziehen.
+
+Gespeicherte Prozeduren, Funktionen und Events werden nicht gelöscht (sie sind auch nicht Teil des Exports).
+
+#### Einzelne SQL-Befehle ausführen (`--patch`)
+
+Mit `--patch` werden nur die Befehle aus einer SQL-Datei ausgeführt, z. B. ein paar `UPDATE`- oder `INSERT`-Befehle. Die Datenbank wird dabei nicht geleert:
+
+```
+./importDB.sh live aenderungen.sql --patch
+./importDB.sh ddev aenderungen.sql --patch
+```
+
+Vor der Sicherheitsabfrage wird der Inhalt der Datei angezeigt: bei mehr als 30 Zeilen nur die ersten 30 plus die Gesamtzahl, Zeilen mit mehr als 200 Zeichen werden abgeschnitten (`…`). `--patch` verlangt eine konkrete `.sql`-Datei, mit einer Quell-Umgebung, `list` oder ohne 2. Parameter bricht das Skript ab. So läuft nicht versehentlich ein kompletter Dump als Patch. Komprimierte oder verschlüsselte Dateien werden ebenfalls abgelehnt, sie vorher mit `./decryptDB.sh datei.sql.gz.gpg --gunzip` entpacken. Bei DDEV wird automatisch `ddev import-db --no-drop` verwendet, weil DDEV die Datenbank sonst vorher leert. Beim ersten fehlerhaften Befehl bricht `mysql` ab, die Befehle davor bleiben ausgeführt.
+
 #### Parameter im Überblick
 
 ```
-./importDB.sh <wohin> [woher] [--gunzip]
+./importDB.sh <wohin> [woher] [--gunzip] [--patch]
 ```
 
 | Parameter | Bedeutung |
@@ -85,6 +106,7 @@ Vor jedem Import erfolgt eine Sicherheitsabfrage, da die Zieldatenbank überschr
 | 1. Parameter (wohin) | Ziel-Umgebung (`db_<name>.conf`) oder ein reservierter Name: `ddev` oder `decrypt` |
 | 2. Parameter (woher) | Nichts: neuester Dump der Ziel-Umgebung (bei `ddev` und `decrypt` stattdessen die Liste). Sonst eine Quell-Umgebung, ein Dateiname (`.sql`, `.sql.gz`, `.sql.gz.gpg`) oder `list` |
 | `--gunzip` | Nur bei `decrypt`: zusätzlich entpacken. Beim normalen Import nur ein Hinweis, weil dort immer automatisch entpackt wird |
+| `--patch` | Nur die Befehle einer SQL-Datei ausführen, ohne die Datenbank vorher zu leeren. Nur beim Import und nur mit einer `.sql`-Datei als 2. Parameter |
 
 Optionen mit `--` dürfen an beliebiger Stelle stehen. Unbekannte Optionen brechen das Skript ab.
 

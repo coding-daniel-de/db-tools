@@ -16,9 +16,9 @@ setup() {
     printf 'DB_HOST="h"\nDB_USER="u"\nDB_PASS="p"\nDB_NAME="n"\nPREFIX="proj-test"\n' > "$T/tools/db_test.conf"
     printf 'DB_HOST="h"\nDB_USER="u"\nDB_PASS="p"\nDB_NAME="n2"\nPREFIX="proj-other"\n' > "$T/tools/db_other.conf"
     export PATH="$STUBS:$PATH"
-    export STUB_MYSQL_OUT="$T/mysql-in.sql"
+    export STUB_MYSQL_OUT="$T/mysql-in.sql" STUB_MYSQL_QUERIES="$T/mysql-queries"
     export STUB_DDEV_OUT="$T/ddev-in.sql" STUB_DDEV_ARGS="$T/ddev-args"
-    unset STUB_DUMP_FAIL STUB_DUMP_SLEEP STUB_MYSQL_FAIL STUB_DDEV_FAIL
+    unset STUB_DUMP_FAIL STUB_DUMP_SLEEP STUB_MYSQL_FAIL STUB_MYSQL_QUERY_FAIL STUB_MYSQL_QUERY_FAIL_AT STUB_MYSQL_TABLES STUB_MYSQL_TABLES_LATER STUB_DDEV_FAIL
 }
 
 # ok "Beschreibung" "Bedingung": Bedingung per eval auswerten und Ergebnis ausgeben
