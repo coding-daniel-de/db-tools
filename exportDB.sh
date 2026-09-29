@@ -66,7 +66,7 @@ fi
 source "$CONF_FILE"
 
 # Dump-Verzeichnis ermitteln (Default oder dbtools.conf)
-resolve_dump_dir
+resolve_dirs
 TARGET_DIR="$DUMP_DIR"
 
 # Verschlüsselung optional abfragen

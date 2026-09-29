@@ -52,22 +52,62 @@ printf 'UPDATE pages SET title = 1;\n' | gzip > $T/elsewhere/p.sql.gz
 seq 1 31 | sed 's/^/SELECT /; s/$/;/' | head -c -1 > $T/elsewhere/ohne_umbruch.sql
 reset; printf 'y\n' | imp test ohne_umbruch.sql --patch >$T/out 2>&1
 ok "--patch: letzte Zeile ohne Umbruch wird mitgezaehlt" "grep -q '(31 Zeilen)' $T/out && grep -q 'ersten 30 von 31' $T/out"
+# --- --patch mit .sql.gz, .gpg und Dump-Hinweis ---
+reset; printf 'y\n' | imp test p.sql.gz --patch >$T/out 2>&1; rc=$?
+ok "--patch mit .sql.gz: entpackt angezeigt und ausgefuehrt" "[ $rc -eq 0 ] && grep -q '(1 Zeilen)' $T/out && grep -qx 'UPDATE pages SET title = 1;' $T/out && [ \"\$(cat $T/mysql-in.sql)\" = 'UPDATE pages SET title = 1;' ]"
 cp $T/elsewhere/p.sql.gz $T/elsewhere/getarnt.sql
 reset; printf 'y\n' | imp test getarnt.sql --patch >$T/out 2>&1; rc=$?
-ok "--patch: gzip-Inhalt mit Endung .sql wird abgelehnt" "[ $rc -ne 0 ] && grep -q 'nur .sql' $T/out && ! grep -q 'absolut sicher' $T/out && [ ! -e $T/mysql-in.sql ]"
+ok "--patch: gzip-Inhalt mit Endung .sql wird entpackt angezeigt und ausgefuehrt" "[ $rc -eq 0 ] && grep -qx 'UPDATE pages SET title = 1;' $T/out && [ \"\$(cat $T/mysql-in.sql)\" = 'UPDATE pages SET title = 1;' ]"
 mk_gpg_at $T/elsewhere/p.sql.gz.gpg 'UPDATE pages SET title = 1;\n'
-for F in p.sql.gz p.sql.gz.gpg; do
-    reset; printf 'geheim\ny\n' | imp test $F --patch >$T/out 2>&1; rc=$?
-    ok "--patch mit $F: Abbruch mit Hinweis auf decryptDB.sh --gunzip" "[ $rc -ne 0 ] && grep -q 'nur .sql' $T/out && grep -q 'decryptDB.sh' $T/out && grep -q -- '--gunzip' $T/out && [ ! -e $T/mysql-in.sql ] && ! grep -qi 'passwort' $T/out"
-done
-for SRC in "" other list; do
-    reset; printf '1\ny\n' | imp test $SRC --patch >$T/out 2>&1; rc=$?
-    ok "--patch ohne Datei ('${SRC:-leer}'): Abbruch" "[ $rc -ne 0 ] && grep -q -- '--patch braucht' $T/out && [ ! -e $T/mysql-in.sql ]"
-done
+reset; printf 'geheim\ny\n' | imp test p.sql.gz.gpg --patch >$T/out 2>&1; rc=$?
+ok "--patch mit .sql.gz.gpg: Abbruch mit Hinweis auf decryptDB.sh, keine Passwortabfrage" "[ $rc -ne 0 ] && grep -q 'decryptDB.sh' $T/out && [ ! -e $T/mysql-in.sql ] && ! grep -qi 'passwort' $T/out"
+reset; printf '1\ny\n' | imp test other --patch >$T/out 2>&1; rc=$?
+ok "--patch mit Quell-Umgebung: Abbruch" "[ $rc -ne 0 ] && grep -q -- '--patch braucht' $T/out && [ ! -e $T/mysql-in.sql ]"
 rm -f $T/elsewhere/p.sql.gz; reset; printf 'geheim\n' | imp decrypt p.sql.gz.gpg --patch >$T/out 2>&1; rc=$?
 ok "--patch bei decrypt: Abbruch" "[ $rc -ne 0 ] && grep -q 'nur beim Import' $T/out && [ ! -e $T/elsewhere/p.sql.gz ]"
+for KOPF in '-- MariaDB dump 10.19  Distrib 10.11.6-MariaDB' '-- MySQL dump 10.13  Distrib 8.0.36'; do
+    printf -- '/*M!999999\\- enable the sandbox mode */\n%s\n--\nDROP TABLE IF EXISTS `tt_content`;\n' "$KOPF" > $T/elsewhere/einzeltabelle.sql
+    reset; printf 'y\n' | imp test einzeltabelle.sql --patch >$T/out 2>&1; rc=$?
+    ok "--patch mit mysqldump-Datei ($(echo "$KOPF" | cut -d" " -f2)): Hinweis, aber ausgefuehrt" "[ $rc -eq 0 ] && grep -q 'ist ein mysqldump' $T/out && grep -q 'nur die darin enthaltenen Tabellen' $T/out && grep -q 'DROP TABLE' $T/mysql-in.sql"
+done
+reset; printf 'y\n' | imp test p.sql --patch >$T/out 2>&1
+ok "--patch mit normaler Datei: kein Dump-Hinweis" "! grep -q 'mysqldump' $T/out"
+
+# --- --patch mit Liste aus dem Patch-Ordner ---
+P="$T/sql-patches"
+reset; printf '1\ny\n' | imp test list --patch >$T/out 2>&1; rc=$?
+ok "list --patch ohne Patch-Ordner: Abbruch mit Meldung" "[ $rc -ne 0 ] && grep -q \"Keine Patch-Dateien in '.*sql-patches'\" $T/out && [ ! -e $T/mysql-in.sql ]"
+mkdir -p $P
+reset; printf '1\ny\n' | imp test list --patch >$T/out 2>&1; rc=$?
+ok "list --patch mit leerem Patch-Ordner: Abbruch mit Meldung" "[ $rc -ne 0 ] && grep -q 'Keine Patch-Dateien' $T/out"
+printf 'UPDATE alt SET a = 1;\n' > $P/01_alt.sql
+sleep 1.1; printf 'UPDATE gz SET a = 1;\n' | gzip > $P/02_gz.sql.gz
+mk_gpg_at $P/03_geheim.sql.gz.gpg 'UPDATE geheim SET a = 1;\n'
+sleep 1.1; printf 'UPDATE neu SET a = 1;\n' > $P/04_neu.sql
+touch $P/notiz.txt
+reset; printf '2\ny\n' | imp test list --patch >$T/out 2>&1; rc=$?
+ok "list --patch: zeigt .sql und .sql.gz aus dem Patch-Ordner, neueste zuerst" "grep -q 'Verfügbare Patch-Dateien in' $T/out && grep -q '1) 04_neu.sql\$' $T/out && grep -q '2) 02_gz.sql.gz\$' $T/out && grep -q '3) 01_alt.sql\$' $T/out"
+ok "list --patch: keine .gpg, keine Dumps, keine anderen Dateien" "! grep -q '03_geheim' $T/out && ! grep -q 'proj-test' $T/out && ! grep -q 'notiz' $T/out"
+ok "list --patch: Auswahl 2 fuehrt den entpackten Inhalt aus" "[ $rc -eq 0 ] && [ \"\$(cat $T/mysql-in.sql)\" = 'UPDATE gz SET a = 1;' ]"
+reset; printf '1\ny\n' | imp test --patch >$T/out 2>&1
+ok "--patch ohne 2. Parameter: zeigt die Patch-Liste" "grep -q 'Verfügbare Patch-Dateien' $T/out && [ \"\$(cat $T/mysql-in.sql)\" = 'UPDATE neu SET a = 1;' ]"
+mkdir -p $P/ordner.sql; touch $P/ordner.sql/drin.sql
+reset; printf '1\ny\n' | imp test list --patch >$T/out 2>&1
+ok "list --patch: Unterordner mit .sql-Endung wird weder aufgeklappt noch angeboten" "! grep -q 'drin.sql' $T/out && ! grep -q 'ordner.sql' $T/out"
+rm -rf $P/ordner.sql
+reset; printf '9\n' | imp test list --patch >$T/out 2>&1; rc=$?
+ok "list --patch: ungueltige Nummer bricht ab" "[ $rc -ne 0 ] && [ ! -e $T/mysql-in.sql ]"
+mkdir -p $T/eigene-patches; printf 'UPDATE eigen SET a = 1;\n' > $T/eigene-patches/x.sql
+printf 'PATCH_DIR="../eigene-patches"\n' > $T/tools/dbtools.conf
+reset; printf '1\ny\n' | imp test list --patch >$T/out 2>&1
+ok "PATCH_DIR aus dbtools.conf, relativ zum Skript-Ordner" "grep -q '1) x.sql\$' $T/out && [ \"\$(cat $T/mysql-in.sql)\" = 'UPDATE eigen SET a = 1;' ]"
+rm $T/tools/dbtools.conf
+reset; printf '1\ny\n' | imp test list >$T/out 2>&1
+ok "list ohne --patch: weiterhin Dump-Liste" "grep -q 'Verfügbare Dumps' $T/out && ! grep -q '04_neu' $T/out"
 
 # --- DDEV ---
+reset; printf '1\ny\n' | imp ddev list --patch >$T/out 2>&1; rc=$?
+ok "ddev list --patch: Patch-Liste, import-db --no-drop" "[ $rc -eq 0 ] && grep -q 'Verfügbare Patch-Dateien' $T/out && [ \"\$(cat $T/ddev-args)\" = 'import-db --no-drop' ] && [ \"\$(cat $T/ddev-in.sql)\" = 'UPDATE neu SET a = 1;' ]"
 reset; printf 'y\n' | imp ddev p.sql --patch >$T/out 2>&1; rc=$?
 ok "ddev --patch: import-db --no-drop, kein DROP" "[ $rc -eq 0 ] && [ \"\$(cat $T/ddev-args)\" = 'import-db --no-drop' ] && ! grep -q DROP $T/ddev-in.sql && grep -q 'AUSGEFÜHRT' $T/out"
 reset; printf 'y\n' | imp ddev test >$T/out 2>&1

@@ -22,7 +22,7 @@ PREFIX="project-dev"
 
 Dateien nach dem Muster `db_*.conf` (außer `db_template.conf`) werden von Git ignoriert, damit keine echten Zugangsdaten versehentlich veröffentlicht werden.
 
-Optional kann das Dump-Verzeichnis (Standard: `../sql-dumps`, gilt für Export und Import gleichermaßen) über eine globale Konfigurationsdatei angepasst werden, basierend auf `dbtools.conf.example`:
+Optional können das Dump-Verzeichnis (Standard: `../sql-dumps`, gilt für Export und Import gleichermaßen) und der Patch-Ordner für `--patch` (Standard: `../sql-patches`) über eine globale Konfigurationsdatei angepasst werden, basierend auf `dbtools.conf.example`:
 
 ```
 cp dbtools.conf.example dbtools.conf
@@ -30,7 +30,10 @@ cp dbtools.conf.example dbtools.conf
 
 ```
 DUMP_DIR="../sql-dumps"
+PATCH_DIR="../sql-patches"
 ```
+
+Relative Pfade gelten relativ zum Ordner der Skripte.
 
 `dbtools.conf` wird ebenfalls von Git ignoriert. Tilde (`~`) wird von Bash in Anführungszeichen nicht aufgelöst, stattdessen `$HOME` verwenden, z. B. `DUMP_DIR="$HOME/sqldumps"`.
 
@@ -90,10 +93,14 @@ Mit `--patch` werden nur die Befehle aus einer SQL-Datei ausgeführt, z. B. ein 
 
 ```
 ./importDB.sh live aenderungen.sql --patch
-./importDB.sh ddev aenderungen.sql --patch
+./importDB.sh ddev aenderungen.sql.gz --patch
+./importDB.sh stage list --patch
+./importDB.sh stage --patch
 ```
 
-Vor der Sicherheitsabfrage wird der Inhalt der Datei angezeigt: bei mehr als 30 Zeilen nur die ersten 30 plus die Gesamtzahl, Zeilen mit mehr als 200 Zeichen werden abgeschnitten (`…`). `--patch` verlangt eine konkrete `.sql`-Datei, mit einer Quell-Umgebung, `list` oder ohne 2. Parameter bricht das Skript ab. So läuft nicht versehentlich ein kompletter Dump als Patch. Komprimierte oder verschlüsselte Dateien werden ebenfalls abgelehnt, sie vorher mit `./decryptDB.sh datei.sql.gz.gpg --gunzip` entpacken. Bei DDEV wird automatisch `ddev import-db --no-drop` verwendet, weil DDEV die Datenbank sonst vorher leert. Beim ersten fehlerhaften Befehl bricht `mysql` ab, die Befehle davor bleiben ausgeführt.
+Erlaubt sind `.sql`- und `.sql.gz`-Dateien, direkt angegeben (von überall) oder über `list` aus dem Patch-Ordner (Standard `../sql-patches`, siehe Einrichtung). Ohne 2. Parameter wird ebenfalls diese Liste gezeigt, nach Datum sortiert (neueste zuerst). Dumps liegen in einem eigenen Ordner und können deshalb nicht versehentlich aus der Liste gewählt werden. Mit einer Quell-Umgebung (`./importDB.sh stage live --patch`) bricht das Skript ab, weil damit ein kompletter Dump gemeint wäre. Verschlüsselte Dateien (`.sql.gz.gpg`) werden abgelehnt, sie vorher mit `./decryptDB.sh datei.sql.gz.gpg` entschlüsseln, das Ergebnis (`.sql.gz`) geht dann.
+
+Vor der Sicherheitsabfrage wird der (entpackte) Inhalt der Datei angezeigt: bei mehr als 30 Zeilen nur die ersten 30 plus die Gesamtzahl, Zeilen mit mehr als 200 Zeichen werden abgeschnitten (`…`). Ist die Datei ein mysqldump (erkannt am Kopf `-- MySQL dump` bzw. `-- MariaDB dump`), erscheint zusätzlich ein Hinweis: Mit `--patch` werden nur die darin enthaltenen Tabellen ersetzt, alle anderen bleiben erhalten. Das ist erlaubt, z. B. um gezielt eine einzelne Tabelle zu ersetzen. Bei DDEV wird automatisch `ddev import-db --no-drop` verwendet, weil DDEV die Datenbank sonst vorher leert. Beim ersten fehlerhaften Befehl bricht `mysql` ab, die Befehle davor bleiben ausgeführt.
 
 #### Parameter im Überblick
 
@@ -106,7 +113,7 @@ Vor der Sicherheitsabfrage wird der Inhalt der Datei angezeigt: bei mehr als 30 
 | 1. Parameter (wohin) | Ziel-Umgebung (`db_<name>.conf`) oder ein reservierter Name: `ddev` oder `decrypt` |
 | 2. Parameter (woher) | Nichts: neuester Dump der Ziel-Umgebung (bei `ddev` und `decrypt` stattdessen die Liste). Sonst eine Quell-Umgebung, ein Dateiname (`.sql`, `.sql.gz`, `.sql.gz.gpg`) oder `list` |
 | `--gunzip` | Nur bei `decrypt`: zusätzlich entpacken. Beim normalen Import nur ein Hinweis, weil dort immer automatisch entpackt wird |
-| `--patch` | Nur die Befehle einer SQL-Datei ausführen, ohne die Datenbank vorher zu leeren. Nur beim Import und nur mit einer `.sql`-Datei als 2. Parameter |
+| `--patch` | Nur die Befehle einer SQL-Datei ausführen, ohne die Datenbank vorher zu leeren. Nur beim Import und nur mit einer `.sql`- oder `.sql.gz`-Datei oder `list` als 2. Parameter (ohne 2. Parameter: `list` aus dem Patch-Ordner) |
 
 Optionen mit `--` dürfen an beliebiger Stelle stehen. Unbekannte Optionen brechen das Skript ab.
 

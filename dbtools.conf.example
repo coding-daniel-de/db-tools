@@ -2,9 +2,13 @@
 # Kopieren nach dbtools.conf und bei Bedarf anpassen:
 #   cp dbtools.conf.example dbtools.conf
 #
-# Fehlt dbtools.conf, wird ../sql-dumps als Standard verwendet.
+# Fehlt dbtools.conf, werden ../sql-dumps und ../sql-patches als Standard verwendet.
+# Relative Pfade gelten relativ zum Ordner der Skripte.
 
 # Verzeichnis für SQL-Dumps. Tilde (~) wird von Bash in Anführungszeichen
 # NICHT aufgelöst, stattdessen $HOME verwenden, z. B.:
 #   DUMP_DIR="$HOME/sql-dumps"
 DUMP_DIR="../sql-dumps"
+
+# Verzeichnis für Patch-Dateien, die importDB.sh mit "list --patch" zur Auswahl anzeigt
+PATCH_DIR="../sql-patches"

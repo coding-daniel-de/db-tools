@@ -27,6 +27,7 @@ set -- "${POSITIONAL[@]}"
 if [ -z "$1" ]; then
     echo "Fehler: Bitte gib die Umgebung an!"
     echo "Nutzung: $0 [ziel-umgebung | ddev | decrypt] [optional: dateiname.sql[.gz[.gpg]] | quell-umgebung | list] [--gunzip] [--patch]"
+    echo "         mit --patch: 2. Parameter ist dateiname.sql[.gz] oder list (Patch-Ordner), ohne Angabe wird list gezeigt"
     echo "Beispiel: $0 dev"
     echo "Beispiel: $0 update dev    (neuesten dev-Dump nach update importieren)"
     echo "Beispiel: $0 update list   (Dump aus einer Liste aller Dumps auswählen)"
@@ -35,6 +36,7 @@ if [ -z "$1" ]; then
     echo "Beispiel: $0 decrypt list  (Dump nur entschlüsseln, Ergebnis im aktuellen Ordner)"
     echo "Beispiel: $0 decrypt dev --gunzip   (entschlüsseln und entpacken, --gunzip nur bei decrypt)"
     echo "Beispiel: $0 live aenderungen.sql --patch   (nur die Befehle der Datei ausführen, DB wird nicht geleert)"
+    echo "Beispiel: $0 stage list --patch   (dito, Datei aus einer Liste des Patch-Ordners auswählen)"
     exit 1
 fi
 
@@ -171,22 +173,22 @@ if [ "$GUNZIP" -eq 1 ] && [ "$ENV" != "decrypt" ]; then
     echo "Hinweis: --gunzip wird beim Import nicht benötigt, es wird automatisch entpackt."
 fi
 
-# --patch nur beim Import und nur mit einer konkreten .sql-Datei, damit nicht versehentlich
-# ein kompletter Dump (neuester, aus der Liste, aus einer Quell-Umgebung) als Patch läuft.
-# Dumps sind immer komprimiert, deshalb schließt das auch die meisten Vertipper aus.
+# --patch nur beim Import und nur mit einer konkreten Datei oder der Liste des Patch-Ordners,
+# damit nicht versehentlich ein kompletter Dump (neuester, aus einer Quell-Umgebung) als Patch
+# läuft. Ohne 2. Parameter wird die Liste gezeigt.
 if [ "$PATCH" -eq 1 ]; then
     if [ "$ENV" = "decrypt" ]; then
         echo "Fehler: --patch gibt es nur beim Import, nicht bei decrypt!"
         exit 1
     fi
     case "$2" in
-        *.sql) ;;
-        *.sql.gz|*.sql.gz.gpg)
-            echo "Fehler: --patch nimmt nur .sql-Dateien! Komprimierte oder verschlüsselte Dateien vorher mit 'decryptDB.sh $2 --gunzip' entpacken."
+        ""|list|*.sql|*.sql.gz) ;;
+        *.sql.gz.gpg)
+            echo "Fehler: --patch nimmt keine verschlüsselten Dateien! Vorher mit 'decryptDB.sh $2' entschlüsseln, das Ergebnis (.sql.gz) geht dann."
             exit 1
             ;;
         *)
-            echo "Fehler: --patch braucht als 2. Parameter eine .sql-Datei!"
+            echo "Fehler: --patch braucht als 2. Parameter eine .sql- oder .sql.gz-Datei oder 'list'!"
             exit 1
             ;;
     esac
@@ -200,19 +202,21 @@ if [ "$ENV" != "ddev" ] && [ "$PATCH" -eq 0 ]; then
     LEEREN=1
 fi
 
-# Quellverzeichnis der Dumps ermitteln (Default oder dbtools.conf)
-resolve_dump_dir
+# Verzeichnisse für Dumps und Patch-Dateien ermitteln (Default oder dbtools.conf)
+resolve_dirs
 SOURCE_DIR="$DUMP_DIR"
 
 # Dump-Datei bestimmen:
 # - 2. Parameter endet auf .sql/.sql.gz/.sql.gz.gpg -> als Dateiname behandeln
-# - 2. Parameter ist "list" -> alle Dumps im Dump-Verzeichnis zur Auswahl anzeigen
+# - 2. Parameter ist "list" -> alle Dumps im Dump-Verzeichnis zur Auswahl anzeigen,
+#   bei --patch stattdessen alle .sql/.sql.gz im Patch-Ordner
 # - 2. Parameter ist sonst gesetzt -> als Quell-Umgebung behandeln, deren PREFIX
 #   für die Dump-Suche übernehmen (Zugangsdaten bleiben die der Ziel-Umgebung!)
 # - kein 2. Parameter -> neuesten Dump der Ziel-Umgebung (eigener PREFIX) suchen;
-#   reservierte Namen haben keinen eigenen PREFIX, dort wird stattdessen "list" gezeigt
+#   reservierte Namen haben keinen eigenen PREFIX, dort wird stattdessen "list" gezeigt,
+#   ebenso bei --patch
 SOURCE_ARG="$2"
-if [ -z "$SOURCE_ARG" ] && is_reserved_env "$ENV"; then
+if [ -z "$SOURCE_ARG" ] && { is_reserved_env "$ENV" || [ "$PATCH" -eq 1 ]; }; then
     SOURCE_ARG="list"
 fi
 if [ -n "$SOURCE_ARG" ]; then
@@ -221,12 +225,25 @@ if [ -n "$SOURCE_ARG" ]; then
             FILE="$SOURCE_ARG"
             ;;
         list)
-            mapfile -t DUMPS < <(ls -t "${SOURCE_DIR}"/*.sql "${SOURCE_DIR}"/*.sql.gz "${SOURCE_DIR}"/*.sql.gz.gpg 2>/dev/null)
+            if [ "$PATCH" -eq 1 ]; then
+                LIST_DIR="$PATCH_DIR"
+                LIST_WHAT="Patch-Dateien"
+                mapfile -t CANDIDATES < <(ls -td "${LIST_DIR}"/*.sql "${LIST_DIR}"/*.sql.gz 2>/dev/null)
+            else
+                LIST_DIR="$SOURCE_DIR"
+                LIST_WHAT="Dumps"
+                mapfile -t CANDIDATES < <(ls -td "${LIST_DIR}"/*.sql "${LIST_DIR}"/*.sql.gz "${LIST_DIR}"/*.sql.gz.gpg 2>/dev/null)
+            fi
+            # Nur echte Dateien anbieten (-d verhindert, dass ls Unterordner wie x.sql/ aufklappt)
+            DUMPS=()
+            for CANDIDATE in "${CANDIDATES[@]}"; do
+                [ -f "$CANDIDATE" ] && DUMPS+=("$CANDIDATE")
+            done
             if [ ${#DUMPS[@]} -eq 0 ]; then
-                echo "Fehler: Keine Dumps in '${SOURCE_DIR}' gefunden!"
+                echo "Fehler: Keine ${LIST_WHAT} in '${LIST_DIR}' gefunden!"
                 exit 1
             fi
-            echo "Verfügbare Dumps in '${SOURCE_DIR}' (neuester zuerst):"
+            echo "Verfügbare ${LIST_WHAT} in '${LIST_DIR}' (neueste zuerst):"
             for i in "${!DUMPS[@]}"; do
                 echo "  $((i + 1))) $(basename "${DUMPS[$i]}")"
             done
@@ -344,13 +361,6 @@ fi
 
 detect_dump_kind
 
-# --patch prüft oben nur die Endung. Ist eine .sql-Datei in Wahrheit komprimiert (etwa ein
-# umbenannter Dump), zeigte die Vorschau nur Binärdaten, deshalb auch das ablehnen.
-if [ "$PATCH" -eq 1 ] && [ "$DUMP_KIND" != "plain" ]; then
-    echo "Fehler: --patch nimmt nur .sql-Dateien mit unkomprimiertem Inhalt! '${FILE}' ist gzip-komprimiert."
-    exit 1
-fi
-
 # Für mysql das Passwort sicher bereitstellen (nie als Argument, sonst per ps sichtbar)
 if [ "$ENV" != "ddev" ]; then
     export MYSQL_PWD="$DB_PASS"
@@ -362,21 +372,26 @@ if [ "$LEEREN" -eq 1 ]; then
     load_db_objects
 fi
 
-# Bei --patch den Inhalt der Datei vor der Sicherheitsabfrage zeigen. Lange Dateien und lange
-# Zeilen werden gekürzt, damit ein versehentlich angegebener Dump (eine Tabelle pro INSERT-Zeile,
-# oft mehrere MB) die Warnung nicht aus dem Terminal schiebt.
+# Bei --patch den (entpackten) Inhalt der Datei vor der Sicherheitsabfrage zeigen. Lange Dateien
+# und lange Zeilen werden gekürzt, damit ein versehentlich angegebener Dump (eine Tabelle pro
+# INSERT-Zeile, oft mehrere MB) die Warnung nicht aus dem Terminal schiebt.
 if [ "$PATCH" -eq 1 ]; then
     PREVIEW_LINES=30
     PREVIEW_CHARS=200
     # awk statt wc -l, damit eine letzte Zeile ohne Zeilenumbruch mitgezählt wird
-    TOTAL_LINES=$(awk 'END { print NR }' "$FILE")
+    TOTAL_LINES=$(dump_content | awk 'END { print NR }')
     echo "Inhalt von '${FILE}' (${TOTAL_LINES} Zeilen):"
     echo "----------------------------------------"
-    head -n "$PREVIEW_LINES" "$FILE" \
+    dump_content | head -n "$PREVIEW_LINES" \
         | awk -v max="$PREVIEW_CHARS" '{ if (length($0) > max) print substr($0, 1, max) "…"; else print }'
     echo "----------------------------------------"
     if [ "$TOTAL_LINES" -gt "$PREVIEW_LINES" ]; then
         echo "(nur die ersten ${PREVIEW_LINES} von ${TOTAL_LINES} Zeilen angezeigt)"
+    fi
+    # Ein mysqldump ist mit --patch erlaubt (z. B. gezielt eine einzelne Tabelle ersetzen),
+    # soll aber auffallen. Erkannt wird er an seinem Kopf in den ersten Zeilen.
+    if dump_content | head -n 5 | grep -qE '^-- (MySQL|MariaDB) dump'; then
+        echo "Hinweis: Die Datei ist ein mysqldump. Mit --patch werden nur die darin enthaltenen Tabellen ersetzt, alle anderen bleiben erhalten."
     fi
 fi
 
