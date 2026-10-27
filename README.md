@@ -126,6 +126,8 @@ Alternativ kann mit `list` eine nach Datum sortierte Auswahl aller Dumps im Dump
 
 Vor jedem Import erfolgt eine Sicherheitsabfrage, da die Zieldatenbank überschrieben wird.
 
+Wurde der Dump automatisch gewählt (neuester Dump einer Quell-Umgebung oder des eigenen PREFIX), lautet die Abfrage `(y/N/l)`. Mit `l` (und Enter) wird die Liste der Dumps dieser Quelle gezeigt (gleicher PREFIX, neueste zuerst), nach der Auswahl kommt die Sicherheitsabfrage erneut mit dem neuen Dateinamen. Ist der gewählte Dump verschlüsselt, wird sein Passwort abgefragt und geprüft. Bestätigt wird weiterhin mit `y` und Enter, nicht mit einem einzelnen Tastendruck. Bei `list` oder einer direkt angegebenen Datei bleibt es bei `(y/N)`.
+
 #### Kompletter Austausch der Datenbank
 
 Ein Import tauscht die Zieldatenbank komplett aus: Vor dem Einspielen des Dumps werden alle Tabellen, Views und Sequenzen der Zieldatenbank gelöscht. Danach entspricht sie exakt dem Stand des Dumps. Ohne das Leeren blieben Tabellen erhalten, die nur in der Zieldatenbank existieren (z. B. von einer inzwischen entfernten Extension), weil ein Dump nur die Tabellen löscht und neu anlegt, die er selbst enthält.
@@ -178,6 +180,8 @@ cd ~/projekte/mein-ddev-projekt
 ```
 
 Ohne zweiten Parameter wird die Liste aller Dumps gezeigt, weil es keinen eigenen PREFIX gibt. Der Dump wird per Pipe an `ddev import-db` übergeben, verschlüsselte und komprimierte Dumps landen dabei nie unverschlüsselt oder entpackt auf der Platte. Existiert eine Datei `db_ddev.conf`, bricht das Skript ab, weil sie ignoriert würde.
+
+Bei `ddev` werden beide Dump-Ordner durchsucht, `DDEV_DUMP_DIR` und `DUMP_DIR`, damit auch Dumps anderer Umgebungen (`./importDB.sh ddev stage`) gefunden werden. Als neuester Dump zählt das Datum über beide Ordner hinweg. Die Liste (`list` und `l` bei der Sicherheitsabfrage) ist eine gemeinsame, nach Datum sortierte Liste. Sind die Ordner verschieden, stehen oben beide Pfade und hinter jedem Eintrag der Ordnername als Label (`[00_dumps]`). Haben beide Ordner denselben Namen, wird stattdessen der volle Pfad als Label gezeigt. Sind beide Ordner gleich, wird nur einmal gesucht und es gibt kein Label. Alle anderen Ziele sehen nur `DUMP_DIR`.
 
 #### Dumps entschlüsseln
 

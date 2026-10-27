@@ -68,15 +68,126 @@ gpg_decrypt() {
         3< <(printf '%s' "$DUMP_PASS")
 }
 
-# Neuesten Dump (.sql.gz oder .sql.gz.gpg) zum Präfix $1 in SOURCE_DIR suchen und in FILE ablegen.
-# $2 beschreibt die Suche für die Fehlermeldung. Bricht das Skript ab, wenn nichts gefunden wird.
-find_latest_dump() {
-    FILE=$(ls -t "${SOURCE_DIR}/${1}"-*.sql.gz "${SOURCE_DIR}/${1}"-*.sql.gz.gpg 2>/dev/null | head -n 1)
-    if [ -z "$FILE" ]; then
-        echo "Fehler: Kein Dump für $2 in '${SOURCE_DIR}' gefunden!"
+# Ordner, in denen nach Dumps gesucht wird, als Text für Meldungen ('a' und 'b')
+search_dirs_text() {
+    local d TEXT=""
+    for d in "${SEARCH_DIRS[@]}"; do
+        [ -n "$TEXT" ] && TEXT+=" und "
+        TEXT+="'${d}'"
+    done
+    echo "$TEXT"
+}
+
+# Dumps in SEARCH_DIRS einsammeln und nach Datum sortiert (neueste zuerst) in DUMPS ablegen.
+# $1 ist der Anfang des Dateinamens (leer = alle, sonst z. B. "proj-dev-"), die weiteren Parameter
+# sind die Endungen (z. B. .sql .sql.gz). Die Sortierung gilt über alle Ordner hinweg.
+gather_dumps() {
+    local GLOB_START="$1" DIR EXT CANDIDATE
+    shift
+    local PATTERNS=()
+    for DIR in "${SEARCH_DIRS[@]}"; do
+        for EXT in "$@"; do
+            PATTERNS+=("${DIR}/${GLOB_START}"*"${EXT}")
+        done
+    done
+    local CANDIDATES
+    mapfile -t CANDIDATES < <(ls -td "${PATTERNS[@]}" 2>/dev/null)
+    # Nur echte Dateien anbieten (-d verhindert, dass ls Unterordner wie x.sql/ aufklappt)
+    DUMPS=()
+    for CANDIDATE in "${CANDIDATES[@]}"; do
+        [ -f "$CANDIDATE" ] && DUMPS+=("$CANDIDATE")
+    done
+}
+
+# Label (Name des Ordners) je Eintrag von SEARCH_DIRS in DIR_LABELS ablegen. Haben zwei Ordner
+# denselben Namen, wird der volle Pfad als Label genommen, damit es eindeutig bleibt.
+compute_dir_labels() {
+    local I J NAMES=()
+    DIR_LABELS=()
+    for I in "${!SEARCH_DIRS[@]}"; do
+        NAMES[$I]="$(basename "${SEARCH_DIRS[$I]}")"
+        DIR_LABELS[$I]="${NAMES[$I]}"
+    done
+    for I in "${!SEARCH_DIRS[@]}"; do
+        for J in "${!SEARCH_DIRS[@]}"; do
+            if [ "$I" -ne "$J" ] && [ "${NAMES[$I]}" = "${NAMES[$J]}" ]; then
+                DIR_LABELS[$I]="${SEARCH_DIRS[$I]}"
+            fi
+        done
+    done
+}
+
+# Auswahlliste anzeigen (siehe gather_dumps für die Parameter), Nummer abfragen und FILE setzen.
+# $1 ist ein Text für die Überschrift ("Dumps", "Patch-Dateien"). Bei mehreren Ordnern steht hinter
+# jedem Eintrag das Label seines Ordners. Bricht das Skript bei leerer Liste oder ungültiger Auswahl ab.
+select_dump() {
+    local WHAT="$1" I J SELECTION LABEL
+    shift
+    gather_dumps "$@"
+    if [ ${#DUMPS[@]} -eq 0 ]; then
+        echo "Fehler: Keine ${WHAT} in $(search_dirs_text) gefunden!"
         exit 1
     fi
+    if [ ${#SEARCH_DIRS[@]} -gt 1 ]; then
+        compute_dir_labels
+        echo "Verfügbare ${WHAT} (neueste zuerst) aus:"
+        for I in "${!SEARCH_DIRS[@]}"; do
+            echo "  ${SEARCH_DIRS[$I]}"
+        done
+    else
+        echo "Verfügbare ${WHAT} in '${SEARCH_DIRS[0]}' (neueste zuerst):"
+    fi
+    for I in "${!DUMPS[@]}"; do
+        LABEL=""
+        if [ ${#SEARCH_DIRS[@]} -gt 1 ]; then
+            for J in "${!SEARCH_DIRS[@]}"; do
+                [ "$(dirname "${DUMPS[$I]}")" = "${SEARCH_DIRS[$J]}" ] && LABEL="      [${DIR_LABELS[$J]}]"
+            done
+        fi
+        echo "  $((I + 1))) $(basename "${DUMPS[$I]}")${LABEL}"
+    done
+    read -p "Nummer wählen: " SELECTION
+    if ! [[ "$SELECTION" =~ ^[0-9]+$ ]] || [ "$SELECTION" -lt 1 ] || [ "$SELECTION" -gt "${#DUMPS[@]}" ]; then
+        echo "Fehler: Ungültige Auswahl '${SELECTION}'!"
+        exit 1
+    fi
+    FILE="${DUMPS[$((SELECTION - 1))]}"
+}
+
+# Neuesten Dump (.sql.gz oder .sql.gz.gpg) zum Präfix $1 in SEARCH_DIRS suchen und in FILE ablegen.
+# $2 beschreibt die Suche für die Fehlermeldung. Bricht das Skript ab, wenn nichts gefunden wird.
+# Merkt sich Präfix in AUTO_PREFIX, damit die Sicherheitsabfrage auf diese Quelle filtern kann.
+find_latest_dump() {
+    AUTO_PREFIX="$1"
+    gather_dumps "${1}-" .sql.gz .sql.gz.gpg
+    if [ ${#DUMPS[@]} -eq 0 ]; then
+        echo "Fehler: Kein Dump für $2 in $(search_dirs_text) gefunden!"
+        exit 1
+    fi
+    FILE="${DUMPS[0]}"
     echo "Verwende Dump: ${FILE}"
+}
+
+# Passwort für verschlüsselte Dumps abfragen und sofort prüfen, noch vor der Sicherheitsabfrage.
+# gpg erkennt ein falsches Passwort nur mit einer 16-Bit-Kontrollsumme (etwa 1 von 65000 falschen
+# Passwörtern rutscht durch), die Integritätsprüfung am Dateiende greift erst nach dem Import.
+# Deshalb werden die ersten Bytes entschlüsselt und auf die gzip-Magic-Bytes (1f 8b) geprüft.
+prompt_dump_password() {
+    [[ "$FILE" == *.gpg ]] || return 0
+    require_gpg || exit 1
+    IFS= read -r -s -p "Passwort für '$(basename "$FILE")': " DUMP_PASS
+    echo
+    local MAGIC
+    MAGIC=$(gpg_decrypt "$FILE" 2>/dev/null | head -c 2 | od -An -tx1 | tr -d ' ')
+    if [ "$MAGIC" != "1f8b" ]; then
+        unset DUMP_PASS
+        if [ "$ENV" = "decrypt" ]; then
+            echo "Fehler: Falsches Passwort oder beschädigter Dump!"
+        else
+            echo "Fehler: Falsches Passwort oder beschädigter Dump! Die Datenbank wurde nicht angefasst."
+        fi
+        exit 1
+    fi
 }
 
 # Inhalt des Dumps FILE entschlüsselt und entpackt auf stdout ausgeben.
@@ -205,6 +316,13 @@ fi
 # Verzeichnisse für Dumps und Patch-Dateien ermitteln (Default oder dbtools.conf)
 resolve_dirs
 SOURCE_DIR="$DUMP_DIR"
+# Suchordner für Dumps: normale Ziele nur DUMP_DIR, ddev zusätzlich DDEV_DUMP_DIR (zuerst), außer
+# beide sind nach Auflösung derselbe Ordner
+SEARCH_DIRS=("$SOURCE_DIR")
+AUTO_PREFIX=""
+if [ "$ENV" = "ddev" ] && [ "$(realpath -m "$DDEV_DUMP_DIR")" != "$(realpath -m "$DUMP_DIR")" ]; then
+    SEARCH_DIRS=("$DDEV_DUMP_DIR" "$DUMP_DIR")
+fi
 
 # Dump-Datei bestimmen:
 # - 2. Parameter endet auf .sql/.sql.gz/.sql.gz.gpg -> als Dateiname behandeln
@@ -226,33 +344,11 @@ if [ -n "$SOURCE_ARG" ]; then
             ;;
         list)
             if [ "$PATCH" -eq 1 ]; then
-                LIST_DIR="$PATCH_DIR"
-                LIST_WHAT="Patch-Dateien"
-                mapfile -t CANDIDATES < <(ls -td "${LIST_DIR}"/*.sql "${LIST_DIR}"/*.sql.gz 2>/dev/null)
+                SEARCH_DIRS=("$PATCH_DIR")
+                select_dump "Patch-Dateien" "" .sql .sql.gz
             else
-                LIST_DIR="$SOURCE_DIR"
-                LIST_WHAT="Dumps"
-                mapfile -t CANDIDATES < <(ls -td "${LIST_DIR}"/*.sql "${LIST_DIR}"/*.sql.gz "${LIST_DIR}"/*.sql.gz.gpg 2>/dev/null)
+                select_dump "Dumps" "" .sql .sql.gz .sql.gz.gpg
             fi
-            # Nur echte Dateien anbieten (-d verhindert, dass ls Unterordner wie x.sql/ aufklappt)
-            DUMPS=()
-            for CANDIDATE in "${CANDIDATES[@]}"; do
-                [ -f "$CANDIDATE" ] && DUMPS+=("$CANDIDATE")
-            done
-            if [ ${#DUMPS[@]} -eq 0 ]; then
-                echo "Fehler: Keine ${LIST_WHAT} in '${LIST_DIR}' gefunden!"
-                exit 1
-            fi
-            echo "Verfügbare ${LIST_WHAT} in '${LIST_DIR}' (neueste zuerst):"
-            for i in "${!DUMPS[@]}"; do
-                echo "  $((i + 1))) $(basename "${DUMPS[$i]}")"
-            done
-            read -p "Nummer wählen: " SELECTION
-            if ! [[ "$SELECTION" =~ ^[0-9]+$ ]] || [ "$SELECTION" -lt 1 ] || [ "$SELECTION" -gt "${#DUMPS[@]}" ]; then
-                echo "Fehler: Ungültige Auswahl '${SELECTION}'!"
-                exit 1
-            fi
-            FILE="${DUMPS[$((SELECTION - 1))]}"
             ;;
         *)
             SOURCE_CONF="${SCRIPT_DIR}/db_${SOURCE_ARG}.conf"
@@ -304,25 +400,7 @@ if [ "$ENV" = "decrypt" ]; then
     fi
 fi
 
-# Passwort für verschlüsselte Dumps abfragen und sofort prüfen, noch vor der Sicherheitsabfrage.
-# gpg erkennt ein falsches Passwort nur mit einer 16-Bit-Kontrollsumme (etwa 1 von 65000 falschen
-# Passwörtern rutscht durch), die Integritätsprüfung am Dateiende greift erst nach dem Import.
-# Deshalb werden die ersten Bytes entschlüsselt und auf die gzip-Magic-Bytes (1f 8b) geprüft.
-if [[ "$FILE" == *.gpg ]]; then
-    require_gpg || exit 1
-    IFS= read -r -s -p "Passwort für '$(basename "$FILE")': " DUMP_PASS
-    echo
-    MAGIC=$(gpg_decrypt "$FILE" 2>/dev/null | head -c 2 | od -An -tx1 | tr -d ' ')
-    if [ "$MAGIC" != "1f8b" ]; then
-        unset DUMP_PASS
-        if [ "$ENV" = "decrypt" ]; then
-            echo "Fehler: Falsches Passwort oder beschädigter Dump!"
-        else
-            echo "Fehler: Falsches Passwort oder beschädigter Dump! Die Datenbank wurde nicht angefasst."
-        fi
-        exit 1
-    fi
-fi
+prompt_dump_password
 
 # decrypt: Ergebnis erst in eine Temp-Datei (Rechte 600) schreiben, damit bei einem Fehler
 # oder Abbruch keine halbe Datei zurückbleibt
@@ -395,22 +473,38 @@ if [ "$PATCH" -eq 1 ]; then
     fi
 fi
 
-# Sicherheitsabfrage vor dem Import (besonders wichtig bei 'live')
-if [ "$PATCH" -eq 1 ]; then
-    if [ "$ENV" = "ddev" ]; then
-        echo "ACHTUNG: Die SQL-Befehle aus '${FILE}' werden auf der Datenbank des DDEV-Projekts im aktuellen Ordner ($PWD) AUSGEFÜHRT!"
+# Sicherheitsabfrage vor dem Import (besonders wichtig bei 'live'). Wurde der Dump automatisch
+# gewählt (neuester einer Quelle), kann mit l stattdessen ein anderer Dump derselben Quelle gewählt
+# werden. Bewusst weiter mit Enter bestätigen, damit ein versehentlicher Tastendruck nicht reicht.
+while true; do
+    if [ "$PATCH" -eq 1 ]; then
+        if [ "$ENV" = "ddev" ]; then
+            echo "ACHTUNG: Die SQL-Befehle aus '${FILE}' werden auf der Datenbank des DDEV-Projekts im aktuellen Ordner ($PWD) AUSGEFÜHRT!"
+        else
+            echo "ACHTUNG: Die SQL-Befehle aus '${FILE}' werden auf der Datenbank [ $DB_NAME ] (Umgebung: $ENV) AUSGEFÜHRT!"
+        fi
+        echo "Die Datenbank wird vorher nicht geleert."
+    elif [ "$ENV" = "ddev" ]; then
+        echo "ACHTUNG: Die Datenbank des DDEV-Projekts im aktuellen Ordner ($PWD) wird GELEERT und durch den Inhalt von '${FILE}' ERSETZT!"
+    elif [ ${#DB_OBJECTS[@]} -eq 0 ]; then
+        echo "ACHTUNG: Die Datenbank [ $DB_NAME ] (Umgebung: $ENV) ist leer und wird mit dem Inhalt von '${FILE}' befüllt!"
     else
-        echo "ACHTUNG: Die SQL-Befehle aus '${FILE}' werden auf der Datenbank [ $DB_NAME ] (Umgebung: $ENV) AUSGEFÜHRT!"
+        echo "ACHTUNG: Alle ${#DB_OBJECTS[@]} Tabellen/Views der Datenbank [ $DB_NAME ] (Umgebung: $ENV) werden GELÖSCHT und durch den Inhalt von '${FILE}' ERSETZT!"
     fi
-    echo "Die Datenbank wird vorher nicht geleert."
-elif [ "$ENV" = "ddev" ]; then
-    echo "ACHTUNG: Die Datenbank des DDEV-Projekts im aktuellen Ordner ($PWD) wird GELEERT und durch den Inhalt von '${FILE}' ERSETZT!"
-elif [ ${#DB_OBJECTS[@]} -eq 0 ]; then
-    echo "ACHTUNG: Die Datenbank [ $DB_NAME ] (Umgebung: $ENV) ist leer und wird mit dem Inhalt von '${FILE}' befüllt!"
-else
-    echo "ACHTUNG: Alle ${#DB_OBJECTS[@]} Tabellen/Views der Datenbank [ $DB_NAME ] (Umgebung: $ENV) werden GELÖSCHT und durch den Inhalt von '${FILE}' ERSETZT!"
-fi
-read -p "Bist du dir absolut sicher? (y/N): " CONFIRM
+    if [ -n "$AUTO_PREFIX" ]; then
+        read -p "Bist du dir absolut sicher? (y/N/l): " CONFIRM
+        if [[ "$CONFIRM" =~ ^[lL]$ ]]; then
+            unset DUMP_PASS
+            select_dump "Dumps" "${AUTO_PREFIX}-" .sql .sql.gz .sql.gz.gpg
+            prompt_dump_password
+            detect_dump_kind
+            continue
+        fi
+    else
+        read -p "Bist du dir absolut sicher? (y/N): " CONFIRM
+    fi
+    break
+done
 if [[ ! "$CONFIRM" =~ ^[yY]$ ]]; then
     unset MYSQL_PWD DUMP_PASS
     echo "Import abgebrochen."
