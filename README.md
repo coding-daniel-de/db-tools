@@ -22,7 +22,7 @@ PREFIX="project-dev"
 
 Dateien nach dem Muster `db_*.conf` (außer `db_template.conf`) werden von Git ignoriert, damit keine echten Zugangsdaten versehentlich veröffentlicht werden.
 
-Optional können das Dump-Verzeichnis (Standard: `../sql-dumps`, gilt für Export und Import gleichermaßen) und der Patch-Ordner für `--patch` (Standard: `../sql-patches`) über eine globale Konfigurationsdatei angepasst werden, basierend auf `dbtools.conf.example`:
+Optional können das Dump-Verzeichnis (Standard: `../sql-dumps`, gilt für Export und Import gleichermaßen), der Ordner für DDEV-Exporte (Standard: wie das Dump-Verzeichnis) und der Patch-Ordner für `--patch` (Standard: `../sql-patches`) über eine globale Konfigurationsdatei angepasst werden, basierend auf `dbtools.conf.example`:
 
 ```
 cp dbtools.conf.example dbtools.conf
@@ -31,6 +31,7 @@ cp dbtools.conf.example dbtools.conf
 ```
 DUMP_DIR="../sql-dumps"
 PATCH_DIR="../sql-patches"
+DDEV_DUMP_DIR=""
 ```
 
 Relative Pfade gelten relativ zum Ordner der Skripte.
@@ -49,11 +50,48 @@ Erstellt einen komprimierten Dump im Dump-Verzeichnis (siehe oben).
 
 #### Verschlüsselung
 
-Vor dem Export fragt das Skript "Dump verschlüsseln? (y/N)". Bei `y` wird zweimal ein Passwort abgefragt und der Dump mit `gpg` symmetrisch (AES256, nur Passwort, kein Schlüssel) verschlüsselt. Die Datei bekommt die Endung `.gpg`, z. B. `project-dev-2026-09-20-14Uhr.sql.gz.gpg`.
+Vor dem Export fragt das Skript "Dump verschlüsseln? (y/N)". Im Terminal genügt dafür ein Tastendruck ohne Enter (Enter allein heißt `N`), bei umgeleiteter Eingabe (Pipe) wird wie bisher eine ganze Zeile gelesen. Bei `y` wird zweimal ein Passwort abgefragt und der Dump mit `gpg` symmetrisch (AES256, nur Passwort, kein Schlüssel) verschlüsselt. Die Datei bekommt die Endung `.gpg`, z. B. `project-dev-2026-09-20-14Uhr.sql.gz.gpg`.
 
 Der Import erkennt verschlüsselte Dumps an der Endung `.gpg` und fragt das Passwort automatisch ab. Das Passwort wird vor der Sicherheitsabfrage geprüft, bei einem falschen Passwort bricht der Import ab, bevor die Datenbank angefasst wird. Das Passwort wird nie als Kommandozeilenargument übergeben (sonst wäre es per `ps` sichtbar).
 
 `gpg` muss auf dem System installiert sein (ab GnuPG 2.1, wegen `--pinentry-mode loopback`). Für unverschlüsselte Dumps wird es nicht benötigt.
+
+#### Automatisches Backup (Cron)
+
+`backupAll.sh` sichert alle Umgebungen aus `BACKUP_ENVS` (Namen der `db_<name>.conf`, durch Leerzeichen getrennt) unverschlüsselt nach `BACKUP_DIR` (ohne Angabe: `DUMP_DIR`), beides in der `dbtools.conf`:
+
+```
+BACKUP_ENVS="live dev kunde2"
+BACKUP_DIR="$HOME/backups"
+```
+
+```
+0 2 * * * /pfad/zu/db-tools/backupAll.sh
+```
+
+- **Still bei Erfolg:** Das Skript gibt nichts aus, es gibt kein Log. Ob gesichert wurde, zeigt der Backup-Ordner.
+- **Bei Fehlern:** Meldung auf stderr ("2 von 5 fehlgeschlagen: live, kunde2" plus die Ausgabe der betroffenen Exporte) und Exit 1. Ein fehlgeschlagener Export stoppt die übrigen nicht, unvollständige Dateien werden gelöscht.
+- **Benachrichtigung:** Cron wertet den Exit-Code nicht aus, sondern schickt jede Ausgabe per Mail an `MAILTO` (in der Crontab setzen, der Server braucht dafür einen funktionierenden Mailversand). Weil das Skript nur bei Fehlern etwas ausgibt, kommt auch nur dann eine Mail.
+
+Dafür versteht `exportDB.sh` zwei Optionen, die auch einzeln nutzbar sind: `--no-encrypt` (keine Rückfrage zur Verschlüsselung) und `--out <ordner>` (Zielordner, relativ zum aktuellen Ordner, hat Vorrang vor `DUMP_DIR`).
+
+#### Export aus einem DDEV-Projekt
+
+`ddev` ist ein fester, eingebauter Name für den Export des lokalen DDEV-Projekts im aktuellen Ordner. Es braucht keine Konfigurationsdatei, das Skript ruft `ddev export-db` auf:
+
+```
+cd ~/projekte/mein-ddev-projekt
+~/scripts/db-tools/exportDB.sh ddev                # in den DDEV-Dump-Ordner
+~/scripts/db-tools/exportDB.sh ddev ~/anderer/ordner
+~/scripts/db-tools/exportDB.sh ddev --dry-run      # Befehl nur anzeigen
+```
+
+- **Dateiname:** wie beim normalen Export, mit `<projektname>-ddev` als PREFIX, z. B. `meinprojekt-ddev-2026-10-06-14Uhr.sql.gz`. Den Projektnamen liefert `ddev describe` (braucht `jq`).
+- **Ziel-Ordner:** `DDEV_DUMP_DIR` aus `dbtools.conf`, ist es nicht gesetzt, `DUMP_DIR`. Ein Ordner als 2. Parameter hat Vorrang, relative Pfade gelten dort relativ zum aktuellen Ordner.
+- **Verschlüsselung:** dieselbe Rückfrage wie oben, der Dump geht per Pipe direkt in `gpg`.
+- **Befehl:** Vor dem Export wird der ausgeführte Befehl angezeigt. Mit `--dry-run` wird nur dieser Befehl ausgegeben (inklusive `mkdir -p`, falls der Ordner fehlt), zum Kopieren oder Anpassen. Bei Verschlüsselung fragt `gpg` das Passwort dann selbst ab.
+
+Existiert eine Datei `db_ddev.conf`, bricht das Skript ab, weil sie ignoriert würde. `--dry-run` gibt es nur bei `ddev`.
 
 ### Import
 
@@ -156,10 +194,9 @@ zgrep "suchbegriff" dump.sql.gz
 tests/run.sh
 ```
 
-Startet alle Tests in `tests/`. Sie brauchen keine echte Datenbank: `mysql`, `mysqldump` und `ddev` werden durch Stubs in `tests/stubs` ersetzt, gearbeitet wird in einem temporären Ordner. Benötigt werden `gpg`, `gzip`, `setsid` und `pgrep`. Ein Test schickt Signale an eine Prozessgruppe, deshalb nicht in einer Umgebung ohne Prozesssteuerung ausführen.
+Startet alle Tests in `tests/`. Sie brauchen keine echte Datenbank: `mysql`, `mysqldump` und `ddev` werden durch Stubs in `tests/stubs` ersetzt, gearbeitet wird in einem temporären Ordner. Benötigt werden `gpg`, `gzip`, `setsid`, `pgrep` und `jq`. Ein Test schickt Signale an eine Prozessgruppe, deshalb nicht in einer Umgebung ohne Prozesssteuerung ausführen.
 
 ## Offene Punkte
 
 - **Verschlüsselter Export nur interaktiv:** Die Rückfrage "Dump verschlüsseln?" und die Passwortabfrage brauchen ein Terminal, ein Einsatz per Cron ist derzeit nicht möglich. Vorschlag für die Automatisierung: ein Schlüsselwort `encrypt`, das die y/N-Rückfrage überspringt, plus eine Passwortquelle ohne Tastatur, z. B. `DB_DUMP_PASSFILE` in `dbtools.conf` (Datei mit Rechten 600), deren Inhalt per `--passphrase-file` an gpg übergeben wird.
 - **Abbruch des Exports:** Der Aufräum-Trap im Export greift sofort bei Ctrl+C. Ein gezieltes `kill <pid>` nur auf das Skript (ohne Prozessgruppe) wirkt erst nach dem Ende des Dumps. Ein geschlossenes Terminal (SIGHUP) wird nicht behandelt.
-- **Export aus DDEV:** Er geschieht über `ddev export-db` und ist nicht Teil dieser Tools.

@@ -2,7 +2,8 @@
 # Kopieren nach dbtools.conf und bei Bedarf anpassen:
 #   cp dbtools.conf.example dbtools.conf
 #
-# Fehlt dbtools.conf, werden ../sql-dumps und ../sql-patches als Standard verwendet.
+# Fehlt dbtools.conf, werden ../sql-dumps und ../sql-patches als Standard verwendet
+# (DDEV-Exporte landen dann ebenfalls in ../sql-dumps).
 # Relative Pfade gelten relativ zum Ordner der Skripte.
 
 # Verzeichnis für SQL-Dumps. Tilde (~) wird von Bash in Anführungszeichen
@@ -12,3 +13,14 @@ DUMP_DIR="../sql-dumps"
 
 # Verzeichnis für Patch-Dateien, die importDB.sh mit "list --patch" zur Auswahl anzeigt
 PATCH_DIR="../sql-patches"
+
+# Verzeichnis für DDEV-Exporte (exportDB.sh ddev). Leer oder nicht gesetzt: wie DUMP_DIR.
+#   DDEV_DUMP_DIR="$HOME/work/docker/00_dumps"
+DDEV_DUMP_DIR=""
+
+# Für backupAll.sh (Cron): Umgebungen, die gesichert werden (Namen der db_<name>.conf,
+# durch Leerzeichen getrennt) und der Zielordner. Ohne BACKUP_DIR gilt DUMP_DIR.
+#   BACKUP_ENVS="live dev kunde2"
+#   BACKUP_DIR="$HOME/backups"
+BACKUP_ENVS=""
+BACKUP_DIR=""

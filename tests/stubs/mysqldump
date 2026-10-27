@@ -1,5 +1,6 @@
 #!/bin/bash
 [ -n "$STUB_DUMP_FAIL" ] && { echo "mysqldump: stub fehler" >&2; exit 1; }
+[ -n "$STUB_DUMP_FAIL_DB" ] && [ "${@: -1}" = "$STUB_DUMP_FAIL_DB" ] && { echo "mysqldump: stub fehler fuer $STUB_DUMP_FAIL_DB" >&2; exit 1; }
 echo "-- MariaDB sandbox comment"
 echo "CREATE TABLE t (id int);"
 echo "INSERT INTO t VALUES (1);"
