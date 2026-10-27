@@ -1,10 +1,10 @@
 #!/bin/bash
-# Führt alle Tests in tests/ aus. Braucht gpg, setsid, pgrep und jq, aber keine echte Datenbank.
+# Führt alle Tests in tests/ aus. Braucht gpg, setsid und pgrep, aber keine echte Datenbank.
 # Nutzung: tests/run.sh
 
 DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
-for tool in gpg setsid pgrep gzip jq; do
+for tool in gpg setsid pgrep gzip; do
     if ! command -v "$tool" >/dev/null 2>&1; then
         echo "Fehler: '$tool' wird für die Tests benötigt!"
         exit 1

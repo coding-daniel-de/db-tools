@@ -33,20 +33,26 @@ while [ $# -gt 0 ]; do
 done
 set -- "${POSITIONAL[@]}"
 
+# Ein Zielordner als Positionsparameter ist nicht (mehr) möglich
+if [ "$#" -gt 1 ]; then
+    echo "Fehler: Zielordner bitte mit --out angeben (z. B. --out ~/dumps)!"
+    exit 1
+fi
+
 # Hilfe-Text anzeigen, wenn der erste Parameter komplett fehlt
 if [ -z "$1" ]; then
     echo "Fehler: Bitte gib die Umgebung an!"
-    echo "Nutzung: $0 [umgebung | ddev] [nur bei ddev, optional: ziel-ordner] [--dry-run] [--no-encrypt] [--out ordner]"
+    echo "Nutzung: $0 [umgebung | ddev] [--dry-run] [--no-encrypt] [--out ordner]"
     echo "Beispiel: $0 dev"
     echo "Beispiel: $0 ddev              (DDEV-Projekt im aktuellen Ordner exportieren)"
-    echo "Beispiel: $0 ddev ~/dumps      (dito, in einen anderen Ordner)"
+    echo "Beispiel: $0 ddev --out ~/dumps    (dito, in einen anderen Ordner)"
     echo "Beispiel: $0 ddev --dry-run    (Befehl nur anzeigen, nicht ausführen)"
     echo "Beispiel: $0 dev --no-encrypt --out ~/backups    (ohne Rückfrage, in einen anderen Ordner)"
     exit 1
 fi
 
 # Ordner dieses Skripts ermitteln, damit der Aufruf aus jedem Ordner funktioniert
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+SCRIPT_DIR="$(cd "$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")" && pwd)"
 
 # Gemeinsame Funktionen laden
 source "${SCRIPT_DIR}/dbtools-lib.sh" || exit 1
@@ -124,16 +130,17 @@ if [ "$ENV" = "ddev" ]; then
         echo "Die Datei 'db_ddev.conf' würde ignoriert. Bitte umbenennen oder löschen."
         exit 1
     fi
-    if ! command -v jq >/dev/null 2>&1; then
-        echo "Fehler: jq ist nicht installiert, wird für den DDEV-Export aber benötigt (Projektname)!"
-        exit 1
-    fi
-    # Projektname des DDEV-Projekts im aktuellen Ordner, ergibt den PREFIX <projekt>-ddev
-    PROJECT=$(ddev describe -j 2>/dev/null </dev/null | jq -r '.raw.name // empty' 2>/dev/null)
-    if [ -z "$PROJECT" ]; then
-        echo "Fehler: Im aktuellen Ordner ($PWD) wurde kein DDEV-Projekt gefunden!"
-        exit 1
-    fi
+    # Projekt-Root: vom aktuellen Ordner nach oben bis zur ersten .ddev/config.yaml,
+    # der Ordnername ergibt den PREFIX <ordner>-ddev
+    PROJECT_ROOT="$PWD"
+    while [ ! -f "${PROJECT_ROOT}/.ddev/config.yaml" ]; do
+        if [ "$PROJECT_ROOT" = "/" ]; then
+            echo "Fehler: Im aktuellen Ordner ($PWD) wurde kein DDEV-Projekt gefunden!"
+            exit 1
+        fi
+        PROJECT_ROOT=$(dirname "$PROJECT_ROOT")
+    done
+    PROJECT=$(basename "$PROJECT_ROOT")
     PREFIX="${PROJECT}-ddev"
 else
     if [ "$DRY_RUN" -eq 1 ]; then
@@ -151,16 +158,11 @@ else
     source "$CONF_FILE"
 fi
 
-# Dump-Verzeichnis ermitteln (Default oder dbtools.conf), bei ddev optional als 2. Parameter
-# (relativ zum aktuellen Ordner, realpath löst ihn entsprechend auf)
+# Dump-Verzeichnis ermitteln (Default oder dbtools.conf)
 resolve_dirs
 if [ "$ENV" = "ddev" ]; then
-    TARGET_DIR="$DDEV_DUMP_DIR"
-    if [ -n "$2" ]; then
-        TARGET_DIR="$2"
-    fi
     # Normalisieren (z. B. "tools/../sql-dumps"), damit der angezeigte Befehl gut lesbar ist
-    TARGET_DIR=$(realpath -m -- "$TARGET_DIR")
+    TARGET_DIR=$(realpath -m -- "$DDEV_DUMP_DIR")
 else
     TARGET_DIR="$DUMP_DIR"
 fi

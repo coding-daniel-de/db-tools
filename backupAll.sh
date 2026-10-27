@@ -4,7 +4,7 @@
 # (Cron schickt dann eine Mail an MAILTO). Ein fehlgeschlagener Export stoppt die anderen nicht.
 # Nutzung: backupAll.sh
 
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+SCRIPT_DIR="$(cd "$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")" && pwd)"
 source "${SCRIPT_DIR}/dbtools-lib.sh" || exit 1
 
 resolve_dirs

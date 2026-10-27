@@ -1,8 +1,8 @@
 source "$(dirname "${BASH_SOURCE[0]}")/helpers.sh"
 setup
 D="$T/sql-dumps"
-run() { ( cd "$T/elsewhere" && "$T/tools/exportDB.sh" ddev "$@" ); }
-reset() { rm -rf "$D" "$T/ddev-args" "$T/out" "$T/ddev-dumps" "$T/elsewhere/rel"; }
+run() { ( cd "$T/meinprojekt" && "$T/tools/exportDB.sh" ddev "$@" ); }
+reset() { rm -rf "$D" "$T/ddev-args" "$T/out" "$T/ddev-dumps" "$T/meinprojekt/rel"; }
 
 # --- Standard-Ordner, Dateiname aus Projektname ---
 reset; echo n | run >$T/out 2>&1; rc=$?
@@ -20,11 +20,19 @@ reset; echo n | run >/dev/null 2>&1
 ok "relativer DDEV_DUMP_DIR relativ zum Skript-Ordner" "ls $T/tools/ddev-rel/meinprojekt-ddev-*.sql.gz >/dev/null 2>&1"
 rm -rf "$T/tools/dbtools.conf" "$T/tools/ddev-rel"
 
-# --- alternativer Ordner als 2. Parameter ---
-reset; echo n | run "$T/ddev-dumps/" >/dev/null 2>&1
-ok "2. Parameter absolut: Dump dort" "ls $T/ddev-dumps/meinprojekt-ddev-*.sql.gz >/dev/null 2>&1 && [ ! -e $D ]"
-reset; echo n | run rel >/dev/null 2>&1
-ok "2. Parameter relativ zum aktuellen Ordner" "ls $T/elsewhere/rel/meinprojekt-ddev-*.sql.gz >/dev/null 2>&1"
+# --- Zielordner nur ueber --out ---
+reset; echo n | run --out "$T/ddev-dumps/" >/dev/null 2>&1
+ok "--out absolut: Dump dort" "ls $T/ddev-dumps/meinprojekt-ddev-*.sql.gz >/dev/null 2>&1 && [ ! -e $D ]"
+reset; echo n | run --out rel >/dev/null 2>&1
+ok "--out relativ zum aktuellen Ordner" "ls $T/meinprojekt/rel/meinprojekt-ddev-*.sql.gz >/dev/null 2>&1"
+reset; echo n | run "$T/ddev-dumps" >$T/out 2>&1; rc=$?
+ok "Ordner als 2. Parameter: Fehler mit Hinweis auf --out" "[ $rc -ne 0 ] && grep -q -- '--out' $T/out && [ ! -e $T/ddev-dumps ] && [ ! -e $D ]"
+reset; ( cd "$T/meinprojekt" && echo n | "$T/tools/exportDB.sh" test "$T/ddev-dumps" ) >$T/out 2>&1; rc=$?
+ok "Ordner als 2. Parameter bei normaler Umgebung: Fehler" "[ $rc -ne 0 ] && grep -q -- '--out' $T/out"
+
+# --- Projekt-Root-Suche ---
+reset; mkdir -p "$T/meinprojekt/public/sub"; ( cd "$T/meinprojekt/public/sub" && echo n | "$T/tools/exportDB.sh" ddev ) >/dev/null 2>&1
+ok "Aufruf aus Unterordner: PREFIX aus dem Root-Ordnernamen" "ls $D/meinprojekt-ddev-*.sql.gz >/dev/null 2>&1 && [ ! -e $D/sub-ddev-* ]"
 
 # --- Verschluesselung ---
 reset; printf 'y\ngeheim\ngeheim\n' | run >$T/out 2>&1; rc=$?
@@ -34,14 +42,14 @@ ok "ddev verschluesselt: Befehl mit gpg angezeigt, Passwort nicht in Ausgabe" "g
 
 # --- --dry-run ---
 reset; echo n | run --dry-run >$T/out 2>&1; rc=$?
-ok "--dry-run: nur Befehl, nichts ausgefuehrt" "[ $rc -eq 0 ] && grep -q \"^mkdir -p '$D' && ddev export-db --gzip > '$D/meinprojekt-ddev-\" $T/out && [ ! -e $D ] && [ \"\$(cat $T/ddev-args)\" = 'describe -j' ]"
-reset; mkdir -p "$T/ddev-dumps"; echo y | run --dry-run "$T/ddev-dumps" >$T/out 2>&1
+ok "--dry-run: nur Befehl, nichts ausgefuehrt" "[ $rc -eq 0 ] && grep -q \"^mkdir -p '$D' && ddev export-db --gzip > '$D/meinprojekt-ddev-\" $T/out && [ ! -e $D ] && [ ! -e $T/ddev-args ]"
+reset; mkdir -p "$T/ddev-dumps"; echo y | run --dry-run --out "$T/ddev-dumps" >$T/out 2>&1
 ok "--dry-run verschluesselt: gpg-Befehl, kein mkdir bei vorhandenem Ordner, keine Passwortabfrage" "grep -q \"^ddev export-db --gzip | gpg --symmetric --cipher-algo AES256 --compress-algo none -o '$T/ddev-dumps/meinprojekt-ddev-.*\.sql\.gz\.gpg'$\" $T/out && ! grep -q Passwort $T/out && [ -z \"\$(ls $T/ddev-dumps)\" ]"
-ok "--dry-run: angezeigter Befehl ist ausfuehrbar" "( cd $T/elsewhere && eval \"\$(tail -n 1 $T/out | sed 's/| gpg.*/> x.sql.gz/')\" ) && gunzip -c $T/elsewhere/x.sql.gz | grep -q ddev_t"
-rm -f $T/elsewhere/x.sql.gz
+ok "--dry-run: angezeigter Befehl ist ausfuehrbar" "( cd $T/meinprojekt && eval \"\$(tail -n 1 $T/out | sed 's/| gpg.*/> x.sql.gz/')\" ) && gunzip -c $T/meinprojekt/x.sql.gz | grep -q ddev_t"
+rm -f $T/meinprojekt/x.sql.gz
 
 # --- Fehlerfaelle ---
-reset; echo n | STUB_DDEV_NAME= run >$T/out 2>&1; rc=$?
+reset; ( cd "$T/elsewhere" && echo n | "$T/tools/exportDB.sh" ddev ) >$T/out 2>&1; rc=$?
 ok "kein DDEV-Projekt: Abbruch vor der Verschluesselungsfrage" "[ $rc -ne 0 ] && grep -q 'kein DDEV-Projekt' $T/out && ! grep -q 'verschlüsseln' $T/out && [ ! -e $D ]"
 reset; echo n | STUB_DDEV_FAIL=1 run >$T/out 2>&1; rc=$?
 ok "ddev export-db scheitert: Exit 1, Datei geloescht" "[ $rc -eq 1 ] && [ -z \"\$(ls $D 2>/dev/null)\" ] && ! grep -q 'Erfolgreich' $T/out"
@@ -49,7 +57,7 @@ touch "$T/tools/db_ddev.conf"
 reset; echo n | run >$T/out 2>&1; rc=$?
 ok "db_ddev.conf vorhanden: Abbruch" "[ $rc -ne 0 ] && grep -q \"'ddev' ist ein reservierter Name\" $T/out && [ ! -e $D ]"
 rm "$T/tools/db_ddev.conf"
-reset; ( cd "$T/elsewhere" && echo n | "$T/tools/exportDB.sh" test --dry-run ) >$T/out 2>&1; rc=$?
+reset; ( cd "$T/meinprojekt" && echo n | "$T/tools/exportDB.sh" test --dry-run ) >$T/out 2>&1; rc=$?
 ok "--dry-run bei normaler Umgebung: Fehler" "[ $rc -ne 0 ] && grep -q 'nur bei ddev' $T/out"
 reset; ( cd "$T/elsewhere" && echo n | "$T/tools/exportDB.sh" ddev --foo ) >$T/out 2>&1; rc=$?
 ok "unbekannte Option: Fehler" "[ $rc -ne 0 ] && grep -q 'Unbekannte Option' $T/out"

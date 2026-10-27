@@ -2,6 +2,17 @@
 
 Kleine Shell-Skripte zum Exportieren und Importieren von MySQL/MariaDB-Datenbanken über verschiedene Umgebungen hinweg (z. B. dev, update, live).
 
+## Installation
+
+Damit die Tools ohne Pfad aufrufbar sind, legt `install.sh` Symlinks in einem Ordner im `PATH` an:
+
+```
+./install.sh            # nach ~/.local/bin
+./install.sh ~/bin      # in einen anderen Ordner
+```
+
+Die Befehle: `db-export` (`exportDB.sh`), `db-import` (`importDB.sh`) und `db-decrypt` (`decryptDB.sh`). `backupAll.sh` bekommt keinen Symlink, es läuft per Cron mit vollem Pfad. Der Zielordner wird bei Bedarf angelegt. Liegt er nicht im `PATH`, zeigt `install.sh` die passende Zeile für die `~/.bashrc` (`~/.profile` nimmt `~/bin` und `~/.local/bin` auf Debian/Ubuntu nur auf, wenn der Ordner beim Login schon existiert). Ein erneuter Aufruf ist gefahrlos; existiert am Ziel schon etwas anderes (fremde Datei, Symlink woandershin), bricht `install.sh` ab und überschreibt nichts.
+
 ## Einrichtung
 
 Für jede Umgebung eine eigene Konfigurationsdatei anlegen, basierend auf `db_template.conf`:
@@ -81,13 +92,13 @@ Dafür versteht `exportDB.sh` zwei Optionen, die auch einzeln nutzbar sind: `--n
 
 ```
 cd ~/projekte/mein-ddev-projekt
-~/scripts/db-tools/exportDB.sh ddev                # in den DDEV-Dump-Ordner
-~/scripts/db-tools/exportDB.sh ddev ~/anderer/ordner
-~/scripts/db-tools/exportDB.sh ddev --dry-run      # Befehl nur anzeigen
+db-export ddev                       # in den DDEV-Dump-Ordner
+db-export ddev --out ~/anderer/ordner
+db-export ddev --dry-run             # Befehl nur anzeigen
 ```
 
-- **Dateiname:** wie beim normalen Export, mit `<projektname>-ddev` als PREFIX, z. B. `meinprojekt-ddev-2026-10-06-14Uhr.sql.gz`. Den Projektnamen liefert `ddev describe` (braucht `jq`).
-- **Ziel-Ordner:** `DDEV_DUMP_DIR` aus `dbtools.conf`, ist es nicht gesetzt, `DUMP_DIR`. Ein Ordner als 2. Parameter hat Vorrang, relative Pfade gelten dort relativ zum aktuellen Ordner.
+- **Dateiname:** wie beim normalen Export, mit `<projektname>-ddev` als PREFIX, z. B. `meinprojekt-ddev-2026-10-06-14Uhr.sql.gz`. Der Name kommt vom Projekt-Ordner: Vom aktuellen Ordner wird nach oben bis zur ersten `.ddev/config.yaml` gesucht, ihr Elternordner ist der Projekt-Root (der Aufruf funktioniert also auch aus Unterordnern wie `public/`). Der DDEV-Projektname selbst wird nicht verwendet, er kann vom Ordnernamen abweichen.
+- **Ziel-Ordner:** `DDEV_DUMP_DIR` aus `dbtools.conf`, ist es nicht gesetzt, `DUMP_DIR`. `--out <ordner>` hat Vorrang, relative Pfade gelten dort relativ zum aktuellen Ordner. Einen Ordner als 2. Parameter gibt es nicht (Fehler mit Hinweis auf `--out`).
 - **Verschlüsselung:** dieselbe Rückfrage wie oben, der Dump geht per Pipe direkt in `gpg`.
 - **Befehl:** Vor dem Export wird der ausgeführte Befehl angezeigt. Mit `--dry-run` wird nur dieser Befehl ausgegeben (inklusive `mkdir -p`, falls der Ordner fehlt), zum Kopieren oder Anpassen. Bei Verschlüsselung fragt `gpg` das Passwort dann selbst ab.
 
@@ -194,7 +205,7 @@ zgrep "suchbegriff" dump.sql.gz
 tests/run.sh
 ```
 
-Startet alle Tests in `tests/`. Sie brauchen keine echte Datenbank: `mysql`, `mysqldump` und `ddev` werden durch Stubs in `tests/stubs` ersetzt, gearbeitet wird in einem temporären Ordner. Benötigt werden `gpg`, `gzip`, `setsid`, `pgrep` und `jq`. Ein Test schickt Signale an eine Prozessgruppe, deshalb nicht in einer Umgebung ohne Prozesssteuerung ausführen.
+Startet alle Tests in `tests/`. Sie brauchen keine echte Datenbank: `mysql`, `mysqldump` und `ddev` werden durch Stubs in `tests/stubs` ersetzt, gearbeitet wird in einem temporären Ordner. Benötigt werden `gpg`, `gzip`, `setsid` und `pgrep`. Ein Test schickt Signale an eine Prozessgruppe, deshalb nicht in einer Umgebung ohne Prozesssteuerung ausführen.
 
 ## Offene Punkte
 

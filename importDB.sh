@@ -41,7 +41,7 @@ if [ -z "$1" ]; then
 fi
 
 # Ordner dieses Skripts ermitteln, damit der Aufruf aus jedem Ordner funktioniert
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+SCRIPT_DIR="$(cd "$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")" && pwd)"
 
 # Gemeinsame Funktionen laden
 source "${SCRIPT_DIR}/dbtools-lib.sh" || exit 1

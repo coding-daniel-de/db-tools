@@ -1,11 +1,6 @@
 #!/bin/bash
 echo "$*" > "$STUB_DDEV_ARGS"
 case "$1" in
-    describe)
-        # Ohne Projektnamen: wie ddev ausserhalb eines Projekts
-        [ -z "$STUB_DDEV_NAME" ] && { echo "ddev: kein Projekt" >&2; exit 1; }
-        printf '{"raw":{"name":"%s"}}\n' "$STUB_DDEV_NAME"
-        ;;
     export-db)
         [ -n "$STUB_DDEV_FAIL" ] && { echo "ddev: stub fehler" >&2; exit 1; }
         printf -- '-- MariaDB dump\nCREATE TABLE ddev_t (id int);\n' | gzip
