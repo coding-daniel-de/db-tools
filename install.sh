@@ -1,7 +1,7 @@
 #!/bin/bash
 
 # Legt Symlinks für die Tools in einem Ordner im PATH an, damit sie ohne Pfad aufrufbar sind:
-# db-export, db-import, db-decrypt (backupAll.sh läuft per Cron mit vollem Pfad und bekommt keinen).
+# db-export, db-import, db-decrypt, db-send, db-fetch (backupAll.sh läuft per Cron mit vollem Pfad und bekommt keinen).
 # Nutzung: ./install.sh [ziel-ordner]    (Standard: ~/.local/bin)
 
 REPO_DIR="$(cd "$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")" && pwd)"
@@ -12,8 +12,10 @@ declare -A LINKS=(
     [db-export]="exportDB.sh"
     [db-import]="importDB.sh"
     [db-decrypt]="decryptDB.sh"
+    [db-send]="sendDB.sh"
+    [db-fetch]="fetchDB.sh"
 )
-NAMES=(db-export db-import db-decrypt)
+NAMES=(db-export db-import db-decrypt db-send db-fetch)
 
 # Erst alles prüfen, damit bei einem Konflikt nichts halb installiert wird
 for name in "${NAMES[@]}"; do

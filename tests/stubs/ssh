@@ -1,0 +1,20 @@
+#!/bin/bash
+# Ersatz für ssh: Befehl lokal ausführen, mit $STUB_REMOTE als Home des "Servers".
+# Aufruf wie ssh [-n] <host> <befehl>; der Host wird in STUB_SSH_LOG protokolliert.
+# Tunnel (-N) oder Tunnel schließen (-O): nur protokollieren, Socket-Datei anlegen/entfernen
+case " $* " in
+    *" -N "*)
+        echo "TUNNEL $*" >> "${STUB_SSH_LOG:-/dev/null}"
+        [ -n "$STUB_TUNNEL_FAIL" ] && { echo "ssh: stub tunnelfehler" >&2; exit 255; }
+        while [ $# -gt 0 ]; do [ "$1" = "-S" ] && touch "$2"; shift; done
+        exit 0 ;;
+    *" -O "*)
+        echo "TUNNEL-EXIT $*" >> "${STUB_SSH_LOG:-/dev/null}"
+        exit 0 ;;
+esac
+while [ "${1#-}" != "$1" ]; do shift; done
+HOST="$1"; shift
+echo "$HOST" >> "${STUB_SSH_LOG:-/dev/null}"
+[ -n "$STUB_SSH_FAIL" ] && { echo "ssh: stub verbindungsfehler" >&2; exit 255; }
+cd "$STUB_REMOTE" || exit 255
+HOME="$STUB_REMOTE" bash -c "$*"

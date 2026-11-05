@@ -1,6 +1,6 @@
 source "$(dirname "${BASH_SOURCE[0]}")/helpers.sh"
 setup
-# Default-Dumpverzeichnis: <tools>/../sql-dumps, Start aus fremdem Ordner
+# Default-Dumpverzeichnis: $HOME/sql-dumps, Start aus fremdem Ordner
 ( cd "$T/elsewhere" && "$T/tools/exportDB.sh" test </dev/null >/dev/null 2>&1 )
 ok "export fremder Ordner, Default-Dir" "ls $T/sql-dumps/proj-test-*.sql.gz >/dev/null 2>&1"
 ( cd "$T/elsewhere" && echo y | "$T/tools/importDB.sh" test >/dev/null 2>&1 )

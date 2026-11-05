@@ -11,7 +11,7 @@ Damit die Tools ohne Pfad aufrufbar sind, legt `install.sh` Symlinks in einem Or
 ./install.sh ~/bin      # in einen anderen Ordner
 ```
 
-Die Befehle: `db-export` (`exportDB.sh`), `db-import` (`importDB.sh`) und `db-decrypt` (`decryptDB.sh`). `backupAll.sh` bekommt keinen Symlink, es läuft per Cron mit vollem Pfad. Der Zielordner wird bei Bedarf angelegt. Liegt er nicht im `PATH`, zeigt `install.sh` die passende Zeile für die `~/.bashrc` (`~/.profile` nimmt `~/bin` und `~/.local/bin` auf Debian/Ubuntu nur auf, wenn der Ordner beim Login schon existiert). Ein erneuter Aufruf ist gefahrlos; existiert am Ziel schon etwas anderes (fremde Datei, Symlink woandershin), bricht `install.sh` ab und überschreibt nichts.
+Die Befehle: `db-export` (`exportDB.sh`), `db-import` (`importDB.sh`) und `db-decrypt` (`decryptDB.sh`), `db-send` (`sendDB.sh`) und `db-fetch` (`fetchDB.sh`). `backupAll.sh` bekommt keinen Symlink, es läuft per Cron mit vollem Pfad. Der Zielordner wird bei Bedarf angelegt. Liegt er nicht im `PATH`, zeigt `install.sh` die passende Zeile für die `~/.bashrc` (`~/.profile` nimmt `~/bin` und `~/.local/bin` auf Debian/Ubuntu nur auf, wenn der Ordner beim Login schon existiert). Ein erneuter Aufruf ist gefahrlos; existiert am Ziel schon etwas anderes (fremde Datei, Symlink woandershin), bricht `install.sh` ab und überschreibt nichts.
 
 ## Einrichtung
 
@@ -31,17 +31,17 @@ DB_NAME=""
 PREFIX="project-dev"
 ```
 
-Dateien nach dem Muster `db_*.conf` (außer `db_template.conf`) werden von Git ignoriert, damit keine echten Zugangsdaten versehentlich veröffentlicht werden.
+Dateien nach dem Muster `db_*.conf` und `remote_*.conf` (außer den `*_template.conf`) werden von Git ignoriert, damit keine echten Zugangsdaten versehentlich veröffentlicht werden.
 
-Optional können das Dump-Verzeichnis (Standard: `../sql-dumps`, gilt für Export und Import gleichermaßen), der Ordner für DDEV-Exporte (Standard: wie das Dump-Verzeichnis) und der Patch-Ordner für `--patch` (Standard: `../sql-patches`) über eine globale Konfigurationsdatei angepasst werden, basierend auf `dbtools.conf.example`:
+Optional können das Dump-Verzeichnis (Standard: `$HOME/sql-dumps`, gilt für Export und Import gleichermaßen), der Ordner für DDEV-Exporte (Standard: wie das Dump-Verzeichnis) und der Patch-Ordner für `--patch` (Standard: `$HOME/sql-patches`) über eine globale Konfigurationsdatei angepasst werden, basierend auf `dbtools.conf.example`:
 
 ```
 cp dbtools.conf.example dbtools.conf
 ```
 
 ```
-DUMP_DIR="../sql-dumps"
-PATCH_DIR="../sql-patches"
+DUMP_DIR="$HOME/sql-dumps"
+PATCH_DIR="$HOME/sql-patches"
 DDEV_DUMP_DIR=""
 ```
 
@@ -149,11 +149,13 @@ Mit `--patch` werden nur die Befehle aus einer SQL-Datei ausgeführt, z. B. ein 
 ./importDB.sh stage --patch
 ```
 
-Erlaubt sind `.sql`- und `.sql.gz`-Dateien, direkt angegeben (von überall) oder über `list` aus dem Patch-Ordner (Standard `../sql-patches`, siehe Einrichtung). Ohne 2. Parameter wird ebenfalls diese Liste gezeigt, nach Datum sortiert (neueste zuerst). Dumps liegen in einem eigenen Ordner und können deshalb nicht versehentlich aus der Liste gewählt werden. Mit einer Quell-Umgebung (`./importDB.sh stage live --patch`) bricht das Skript ab, weil damit ein kompletter Dump gemeint wäre. Verschlüsselte Dateien (`.sql.gz.gpg`) werden abgelehnt, sie vorher mit `./decryptDB.sh datei.sql.gz.gpg` entschlüsseln, das Ergebnis (`.sql.gz`) geht dann.
+Erlaubt sind `.sql`- und `.sql.gz`-Dateien, direkt angegeben (von überall) oder über `list` aus dem Patch-Ordner (Standard `$HOME/sql-patches`, siehe Einrichtung). Ohne 2. Parameter wird ebenfalls diese Liste gezeigt, nach Datum sortiert (neueste zuerst). Dumps liegen in einem eigenen Ordner und können deshalb nicht versehentlich aus der Liste gewählt werden. Mit einer Quell-Umgebung (`./importDB.sh stage live --patch`) bricht das Skript ab, weil damit ein kompletter Dump gemeint wäre. Verschlüsselte Dateien (`.sql.gz.gpg`) werden abgelehnt, sie vorher mit `./decryptDB.sh datei.sql.gz.gpg` entschlüsseln, das Ergebnis (`.sql.gz`) geht dann.
 
 Vor der Sicherheitsabfrage wird der (entpackte) Inhalt der Datei angezeigt: bei mehr als 30 Zeilen nur die ersten 30 plus die Gesamtzahl, Zeilen mit mehr als 200 Zeichen werden abgeschnitten (`…`). Ist die Datei ein mysqldump (erkannt am Kopf `-- MySQL dump` bzw. `-- MariaDB dump`), erscheint zusätzlich ein Hinweis: Mit `--patch` werden nur die darin enthaltenen Tabellen ersetzt, alle anderen bleiben erhalten. Das ist erlaubt, z. B. um gezielt eine einzelne Tabelle zu ersetzen. Bei DDEV wird automatisch `ddev import-db --no-drop` verwendet, weil DDEV die Datenbank sonst vorher leert. Beim ersten fehlerhaften Befehl bricht `mysql` ab, die Befehle davor bleiben ausgeführt.
 
 #### Parameter im Überblick
+
+Bewusste Abweichung von der Aufrufkonvention: Der 2. Parameter hat je nach Inhalt drei Bedeutungen (Datei, Quell-Umgebung, `list`), und `ddev`/`decrypt` sind reservierte Namen an der Umgebungs-Position. Das bleibt aus Bedienkomfort und wegen vorhandener Gewohnheit so; eine Alternative mit `--from <quell-umgebung>` ist als Idee notiert (`handoff/someday-maybe-liste.md`). Neue Befehle (`db-send`, `db-fetch`) folgen der Konvention.
 
 ```
 ./importDB.sh <wohin> [woher] [--gunzip] [--patch]
@@ -203,13 +205,97 @@ zless dump.sql.gz
 zgrep "suchbegriff" dump.sql.gz
 ```
 
+## Dateien zwischen Rechner und Server (`db-send`, `db-fetch`)
+
+Die Tools arbeiten immer lokal auf Dateien. Um einen Dump auf einen anderen Server zu bringen (und dort mit den db-tools zu importieren) oder von dort zu holen, gibt es zwei Befehle. Sie kopieren per `scp` und importieren selbst nichts.
+
+### Einrichtung eines Servers
+
+Pro Server eine Datei `remote_<name>.conf`, basierend auf `remote_template.conf`:
+
+```
+cp remote_template.conf remote_projekt-live.conf
+```
+
+```
+SSH_HOST="projekt-live"
+REMOTE_DUMP_DIR="sql-dumps"
+REMOTE_PATCH_DIR="sql-patches"
+```
+
+`SSH_HOST` ist ein Alias aus der `~/.ssh/config` (dort stehen Host, User, Port und Key, in der `remote_*.conf` keine Zugangsdaten). Die beiden Ordner gelten relativ zum Home des SSH-Users auf dem Server oder absolut (keine Tilde). Standard, wenn nicht gesetzt: `sql-dumps` und `sql-patches`, passend zu den Standards `$HOME/sql-dumps` und `$HOME/sql-patches` der Tools. Fehlende Ordner werden auf dem Server angelegt.
+
+Auf dem Server selbst liegen die db-tools nach der Regel für Server unter `~/scripts/db-tools/`. Welche DB-Configs dort liegen dürfen, hängt vom Schutzbedarf ab: Die Config der eigenen Umgebung und höchstens die der weniger schützenswerten (Live darf Stage kennen, Stage nie Live).
+
+### Aufruf
+
+```
+db-send <server> [dateiname] [--env <umgebung>] [--patch]
+db-fetch <server> [dateiname] [--env <umgebung>] [--patch]
+```
+
+```
+db-send projekt-live                       Liste der lokalen Dumps (neueste zuerst), Auswahl, kopieren
+db-send projekt-live dump.sql.gz           diese Datei (Pfad oder Name im Dump-Ordner)
+db-send projekt-live --env live            Liste auf den PREFIX der Umgebung live eingrenzen
+db-send projekt-live --patch               Liste der Patch-Dateien
+db-send projekt-live fix.sql --patch       diesen Patch kopieren
+db-fetch projekt-live                      Liste der Dumps auf dem Server, Auswahl, in den lokalen Dump-Ordner holen
+db-fetch projekt-live --patch              dito mit Patch-Dateien (landen im lokalen Patch-Ordner)
+```
+
+- Ohne Dateiname kommt die Liste. Bei der Nummernabfrage wählt Enter die neueste Datei (Nummer 1).
+- `--env` funktioniert nur für Dumps und nur mit Liste (nicht zusammen mit einem Dateinamen und nicht mit `--patch`).
+- Vor dem Kopieren zeigt das Tool Datei, Größe und Ziel und fragt per Einzeltaste (y/N).
+- Eine vorhandene Datei am Ziel wird nie überschrieben, das Tool bricht mit Meldung ab.
+- Kopiert wird erst nach `<name>.part` und dann umbenannt, damit nie eine halbe Datei als Dump dasteht. Verschlüsselte Dumps (`.gpg`) werden unverändert kopiert; verschlüsselte Patches nimmt der Import nicht, deshalb auch `db-send` nicht.
+- Dateinamen dürfen nur A-Z a-z 0-9 . _ + - enthalten (sie gehen in scp/ssh-Pfade ein).
+- Für `db-fetch` muss auf dem Server GNU `find` vorhanden sein (Dateiliste).
+- Die Aufrufform folgt einer festen Konvention für neue Befehle: Jede Position hat genau eine Bedeutung (Server zuerst, dann optional die Datei), Varianten und Filter sind Optionen (`--env`, `--patch`) und keine Positionsparameter mit wechselnder Bedeutung.
+
+## SSH-Tunnel zur Datenbank
+
+Ist die Datenbank eines Servers nicht direkt erreichbar (MySQL lauscht nur auf `localhost` des Servers oder die Firewall sperrt Port 3306), kann jede Umgebung ihre DB über einen SSH-Tunnel ansprechen. Das Tool öffnet den Tunnel beim Start, nutzt ihn für `mysql`/`mysqldump` und schließt ihn am Ende wieder (auch bei Abbruch). Export, Import und Backup verhalten sich sonst wie gewohnt.
+
+In der `db_<umgebung>.conf` (nicht in der `remote_*.conf`, denn der Tunnel beschreibt den Weg zu einer Datenbank, nicht zu Dateien):
+
+```
+SSH_TUNNEL="projekt-live"
+TUNNEL_PORT="3307"
+TUNNEL_REMOTE="127.0.0.1:3306"
+```
+
+- `SSH_TUNNEL`: SSH-Alias aus der `~/.ssh/config` (derselbe Alias wie in der `remote_*.conf` ist möglich). Ohne diese Zeile gibt es keinen Tunnel.
+- `TUNNEL_PORT`: lokaler Port, Standard `3307`. Läuft schon etwas auf dem Port (z. B. ein zweiter Tunnel, DDEV), einen anderen wählen.
+- `TUNNEL_REMOTE`: DB-Host und Port, **vom Server aus gesehen**. Standard `127.0.0.1:3306`.
+- `DB_HOST` der Config gilt mit Tunnel nicht, das Tool verbindet sich mit `127.0.0.1:TUNNEL_PORT`. `DB_USER`, `DB_PASS` und `DB_NAME` bleiben wie sonst.
+- Unabhängig vom Tunnel gibt es `DB_PORT` für eine DB auf einem anderen Port (wird als `-P` an `mysql`/`mysqldump` übergeben).
+
+Manuell entspricht das:
+
+```
+ssh -N -L 3307:127.0.0.1:3306 projekt-live
+```
+
+Beispiel für `~/.ssh/config`:
+
+```
+Host projekt-live
+    HostName server.example.org
+    User deploy
+    IdentityFile ~/.ssh/id_ed25519_projekt
+    IdentitiesOnly yes
+```
+
+Mit einem Key mit Passphrase und `ssh-agent` wird die Passphrase einmal pro Sitzung abgefragt (`ssh-add ~/.ssh/id_ed25519_projekt`), danach laufen alle Aufrufe ohne Eingabe. Ohne Agent fragt `ssh` bei jedem Tool-Start. Das Passwort der Datenbank bleibt dabei lokal in der `db_*.conf`; ohne den SSH-Key ist es wertlos, solange die DB nicht von außen erreichbar ist. Für `backupAll.sh` per Cron geht ein Tunnel nur, wenn der Key ohne Passphrase-Abfrage nutzbar ist (Agent oder eigener, eingeschränkter Backup-Key).
+
 ## Tests
 
 ```
 tests/run.sh
 ```
 
-Startet alle Tests in `tests/`. Sie brauchen keine echte Datenbank: `mysql`, `mysqldump` und `ddev` werden durch Stubs in `tests/stubs` ersetzt, gearbeitet wird in einem temporären Ordner. Benötigt werden `gpg`, `gzip`, `setsid` und `pgrep`. Ein Test schickt Signale an eine Prozessgruppe, deshalb nicht in einer Umgebung ohne Prozesssteuerung ausführen.
+Startet alle Tests in `tests/`. Sie brauchen keine echte Datenbank: `mysql`, `mysqldump`, `ddev`, `ssh` und `scp` werden durch Stubs in `tests/stubs` ersetzt, gearbeitet wird in einem temporären Ordner. Benötigt werden `gpg`, `gzip`, `setsid` und `pgrep`. Ein Test schickt Signale an eine Prozessgruppe, deshalb nicht in einer Umgebung ohne Prozesssteuerung ausführen.
 
 ## Offene Punkte
 

@@ -1,3 +1,5 @@
+remote_*.conf
+!remote_template.conf
 db_*.conf
 !db_template.conf
 dbtools.conf

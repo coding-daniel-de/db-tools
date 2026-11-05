@@ -1,4 +1,5 @@
 #!/bin/bash
+[ -n "$STUB_DB_ARGS" ] && echo "$(basename "$0") $*" >> "$STUB_DB_ARGS"
 # Abfrage per -e (Tabellenliste der Ziel-DB): Inhalt von STUB_MYSQL_TABLES ausgeben.
 # Ab der zweiten Abfrage wird STUB_MYSQL_TABLES_LATER verwendet (falls gesetzt),
 # STUB_MYSQL_QUERY_FAIL_AT=<n> lässt nur die n-te Abfrage fehlschlagen.

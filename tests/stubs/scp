@@ -1,0 +1,12 @@
+#!/bin/bash
+# Ersatz für scp: "host:pfad" wird auf $STUB_REMOTE/pfad (bzw. absolut) abgebildet.
+ARGS=()
+for A in "$@"; do
+    case "$A" in
+        -*) ;;
+        *:*) P="${A#*:}"; case "$P" in /*) ARGS+=("$P") ;; *) ARGS+=("$STUB_REMOTE/$P") ;; esac ;;
+        *) ARGS+=("$A") ;;
+    esac
+done
+[ -n "$STUB_SCP_FAIL" ] && { echo "scp: stub fehler" >&2; exit 1; }
+cp "${ARGS[0]}" "${ARGS[1]}"

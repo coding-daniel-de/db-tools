@@ -219,7 +219,7 @@ detect_dump_kind() {
 # (je Zeile "TYP<Tab>NAME"). Bricht bei einem Verbindungsfehler das Skript ab.
 load_db_objects() {
     local OUTPUT
-    if ! OUTPUT=$(mysql -h "$DB_HOST" -u "$DB_USER" -N -B -r \
+    if ! OUTPUT=$(mysql -h "$DB_HOST" "${DB_PORT_ARGS[@]}" -u "$DB_USER" -N -B -r \
         -e "SELECT TABLE_TYPE, TABLE_NAME FROM information_schema.TABLES WHERE TABLE_SCHEMA = DATABASE()" \
         "$DB_NAME"); then
         unset MYSQL_PWD DUMP_PASS
@@ -277,7 +277,7 @@ else
     fi
 
     # Konfiguration einlesen (lädt die Variablen)
-    source "$CONF_FILE"
+    load_db_conf "$CONF_FILE" || exit 1
 fi
 
 if [ "$GUNZIP" -eq 1 ] && [ "$ENV" != "decrypt" ]; then
@@ -324,7 +324,11 @@ if [ "$ENV" = "ddev" ] && [ "$(realpath -m "$DDEV_DUMP_DIR")" != "$(realpath -m 
     SEARCH_DIRS=("$DDEV_DUMP_DIR" "$DUMP_DIR")
 fi
 
-# Dump-Datei bestimmen:
+# Dump-Datei bestimmen.
+# BEWUSSTE ABWEICHUNG von der Aufrufkonvention für neue Befehle (eine Position, eine
+# Bedeutung): Der 2. Parameter ist je nach Inhalt Datei, Quell-Umgebung oder "list". Grund: kurze Form
+# im Alltag ("db-import update dev") und bestehende Gewohnheit; Alternative mit --from ist notiert
+# in handoff/someday-maybe-liste.md.
 # - 2. Parameter endet auf .sql/.sql.gz/.sql.gz.gpg -> als Dateiname behandeln
 # - 2. Parameter ist "list" -> alle Dumps im Dump-Verzeichnis zur Auswahl anzeigen,
 #   bei --patch stattdessen alle .sql/.sql.gz im Patch-Ordner
@@ -524,7 +528,7 @@ if [ "$ENV" = "ddev" ]; then
     IMPORT_CMD=(ddev import-db)
     [ "$PATCH" -eq 1 ] && IMPORT_CMD+=(--no-drop)
 else
-    IMPORT_CMD=(mysql -h "$DB_HOST" -u "$DB_USER" "$DB_NAME")
+    IMPORT_CMD=(mysql -h "$DB_HOST" "${DB_PORT_ARGS[@]}" -u "$DB_USER" "$DB_NAME")
 fi
 
 # Schlägt ein Schritt der Pipe fehl (z. B. gpg oder gunzip), soll das nicht als Erfolg durchgehen

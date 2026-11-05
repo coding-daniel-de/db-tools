@@ -84,7 +84,7 @@ dump_sql() {
     if [ "$ENV" = "ddev" ]; then
         ddev export-db --gzip </dev/null
     else
-        mysqldump -h "$DB_HOST" -u "$DB_USER" -v --opt "$DB_NAME" | tail -n +2 | gzip
+        mysqldump -h "$DB_HOST" "${DB_PORT_ARGS[@]}" -u "$DB_USER" -v --opt "$DB_NAME" | tail -n +2 | gzip
     fi
 }
 
@@ -155,7 +155,7 @@ else
     fi
 
     # Konfiguration einlesen (lädt die Variablen)
-    source "$CONF_FILE"
+    load_db_conf "$CONF_FILE" || exit 1
 fi
 
 # Dump-Verzeichnis ermitteln (Default oder dbtools.conf)
