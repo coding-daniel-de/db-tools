@@ -3,10 +3,21 @@ setup
 B="$T/bin"
 
 # --- Anlegen, Ordner wird bei Bedarf erstellt ---
-( cd "$T/elsewhere" && "$REPO/install.sh" "$B" ) >$T/out 2>&1; rc=$?
+mkdir -p "$T/h0"; : > "$T/h0/.bashrc"
+( cd "$T/elsewhere" && HOME="$T/h0" "$REPO/install.sh" "$B" </dev/null ) >$T/out 2>&1; rc=$?
 ok "install: Exit 0, fuenf Symlinks mit absolutem Ziel" "[ $rc -eq 0 ] && [ \"\$(readlink $B/db-export)\" = '$REPO/exportDB.sh' ] && [ \"\$(readlink $B/db-import)\" = '$REPO/importDB.sh' ] && [ \"\$(readlink $B/db-decrypt)\" = '$REPO/decryptDB.sh' ] && [ \"\$(readlink $B/db-send)\" = '$REPO/sendDB.sh' ] && [ \"\$(readlink $B/db-fetch)\" = '$REPO/fetchDB.sh' ]"
 ok "install: kein Symlink fuer backupAll" "[ ! -e $B/backupAll.sh ] && ! ls $B | grep -qi backup"
 ok "install: PATH-Hinweis, wenn Zielordner nicht im PATH" "grep -q 'liegt nicht im PATH' $T/out && grep -q 'export PATH=\"$B:' $T/out"
+
+# --- --path: Eintrag in die bashrc, idempotent ---
+H="$T/home"; mkdir -p "$H"; : > "$H/.bashrc"
+( HOME="$H" "$REPO/install.sh" --path "$H/bin" ) >$T/out 2>&1; rc=$?
+ok "install --path: bashrc-Eintrag mit \$HOME" "[ $rc -eq 0 ] && grep -qxF 'export PATH=\"\$HOME/bin:\$PATH\"' $H/.bashrc"
+( HOME="$H" "$REPO/install.sh" --path "$H/bin" ) >$T/out 2>&1
+ok "install --path: zweiter Lauf traegt nicht doppelt ein" "[ \"\$(grep -c '^export PATH' $H/.bashrc)\" -eq 1 ]"
+H2="$T/home2"; mkdir -p "$H2"; : > "$H2/.bashrc"
+( HOME="$H2" "$REPO/install.sh" "$H2/bin" </dev/null ) >$T/out 2>&1
+ok "install: ohne Terminal und ohne --path bleibt bashrc unveraendert" "[ ! -s $H2/.bashrc ] && grep -q 'liegt nicht im PATH' $T/out"
 
 # --- Wiederholbar ---
 ( "$REPO/install.sh" "$B" ) >$T/out 2>&1; rc=$?

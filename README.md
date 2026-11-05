@@ -7,11 +7,12 @@ Kleine Shell-Skripte zum Exportieren und Importieren von MySQL/MariaDB-Datenbank
 Damit die Tools ohne Pfad aufrufbar sind, legt `install.sh` Symlinks in einem Ordner im `PATH` an:
 
 ```
-./install.sh            # nach ~/.local/bin
-./install.sh ~/bin      # in einen anderen Ordner
+./install.sh                  # nach ~/bin
+./install.sh ~/.local/bin     # in einen anderen Ordner
+./install.sh --path           # dazu ~/bin ohne Rückfrage in den PATH der ~/.bashrc eintragen
 ```
 
-Die Befehle: `db-export` (`exportDB.sh`), `db-import` (`importDB.sh`) und `db-decrypt` (`decryptDB.sh`), `db-send` (`sendDB.sh`) und `db-fetch` (`fetchDB.sh`). `backupAll.sh` bekommt keinen Symlink, es läuft per Cron mit vollem Pfad. Der Zielordner wird bei Bedarf angelegt. Liegt er nicht im `PATH`, zeigt `install.sh` die passende Zeile für die `~/.bashrc` (`~/.profile` nimmt `~/bin` und `~/.local/bin` auf Debian/Ubuntu nur auf, wenn der Ordner beim Login schon existiert). Ein erneuter Aufruf ist gefahrlos; existiert am Ziel schon etwas anderes (fremde Datei, Symlink woandershin), bricht `install.sh` ab und überschreibt nichts.
+Die Befehle: `db-export` (`exportDB.sh`), `db-import` (`importDB.sh`) und `db-decrypt` (`decryptDB.sh`), `db-send` (`sendDB.sh`) und `db-fetch` (`fetchDB.sh`). `backupAll.sh` bekommt keinen Symlink, es läuft per Cron mit vollem Pfad. Der Zielordner wird bei Bedarf angelegt. Liegt er nicht im `PATH`, fragt `install.sh` im Terminal, ob es den Eintrag in die `~/.bashrc` schreiben soll (mit `--path` ohne Rückfrage; der Eintrag trägt einen Marker (`# bin-path`, derselbe wie bei remote-tools) und kommt nie doppelt). Ohne Terminal und ohne `--path` zeigt es nur die passende Zeile (`~/.profile` nimmt `~/bin` und `~/.local/bin` auf Debian/Ubuntu nur auf, wenn der Ordner beim Login schon existiert). Ein erneuter Aufruf ist gefahrlos; existiert am Ziel schon etwas anderes (fremde Datei, Symlink woandershin), bricht `install.sh` ab und überschreibt nichts.
 
 ## Einrichtung
 
