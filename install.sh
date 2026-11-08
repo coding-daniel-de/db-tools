@@ -13,7 +13,13 @@ if [ "$1" = "--path" ]; then
     shift
 fi
 TARGET="${1:-$HOME/bin}"
-TARGET=$(realpath -m -- "$TARGET")
+# Pfad absolut machen und Slashes bereinigen (ohne realpath, das fehlt auf älteren Debian-Servern)
+case "$TARGET" in
+    /*) ;;
+    *)  TARGET="$PWD/$TARGET" ;;
+esac
+while [[ "$TARGET" == */ && "$TARGET" != "/" ]]; do TARGET="${TARGET%/}"; done
+while [[ "$TARGET" == *//* ]]; do TARGET="${TARGET//\/\//\/}"; done
 
 declare -A LINKS=(
     [db-export]="exportDB.sh"
