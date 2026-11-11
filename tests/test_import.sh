@@ -77,4 +77,7 @@ ok "--patch mit --latest: Fehler" "[ $rc -ne 0 ] && grep -q 'nimmt weder' $T/out
 
 reset; imp test </dev/null >$T/out 2>&1; rc=$?
 ok "Liste bei EOF: kein Default, Abbruch" "[ $rc -ne 0 ] && grep -q 'Ungültige Auswahl' $T/out && [ ! -e $T/mysql-in.sql ]"
+sleep 1.1; printf 'CREATE TABLE neu_plain (id int);\n' > $D/proj-test-zzplain.sql
+reset; printf 'y\n' | imp test --latest >$T/out 2>&1
+ok "--latest: nimmt auch eine unkomprimierte .sql als neuesten Dump" "grep -q 'Verwende Dump: .*proj-test-zzplain.sql' $T/out && grep -q 'neu_plain' $T/mysql-in.sql"
 rm -rf "$T"; exit $PASSFAIL

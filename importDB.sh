@@ -183,12 +183,12 @@ select_dump() {
     FILE="${DUMPS[$((SELECTION - 1))]}"
 }
 
-# Neuesten Dump (.sql.gz oder .sql.gz.gpg) zum Präfix $1 in SEARCH_DIRS suchen und in FILE ablegen.
+# Neuesten Dump (.sql, .sql.gz oder .sql.gz.gpg) zum Präfix $1 in SEARCH_DIRS suchen und in FILE ablegen.
 # $2 beschreibt die Suche für die Fehlermeldung. Bricht das Skript ab, wenn nichts gefunden wird.
 # Merkt sich Präfix in AUTO_PREFIX, damit die Sicherheitsabfrage auf diese Quelle filtern kann.
 find_latest_dump() {
     AUTO_PREFIX="$1"
-    gather_dumps "${1}-" .sql.gz .sql.gz.gpg
+    gather_dumps "${1}-" .sql .sql.gz .sql.gz.gpg
     if [ ${#DUMPS[@]} -eq 0 ]; then
         echo "Fehler: Kein Dump für $2 in $(search_dirs_text) gefunden!"
         exit 1
