@@ -8,11 +8,11 @@ ok "dbtools-lib.sh existiert und ist nicht ausfuehrbar" "[ -f $REPO/dbtools-lib.
 
 # 1. Import: Exit 1 bei Fehler
 printf 'CREATE TABLE t (id int);\n' | gzip > $D/proj-test-2026-01-01-10Uhr.sql.gz
-( cd $T/elsewhere && echo y | STUB_MYSQL_FAIL=1 $T/tools/importDB.sh test >$T/out 2>&1 ); rc=$?
+( cd $T/elsewhere && echo y | STUB_MYSQL_FAIL=1 $T/tools/importDB.sh test --latest >$T/out 2>&1 ); rc=$?
 ok "Import-Fehler: Exit 1" "[ $rc -eq 1 ] && grep -q 'Fehler: Beim Import' $T/out"
-( cd $T/elsewhere && echo y | $T/tools/importDB.sh test >$T/out 2>&1 ); rc=$?
+( cd $T/elsewhere && echo y | $T/tools/importDB.sh test --latest >$T/out 2>&1 ); rc=$?
 ok "Import ok: Exit 0" "[ $rc -eq 0 ] && grep -q 'Erfolgreich importiert' $T/out"
-( cd $T/elsewhere && echo n | $T/tools/importDB.sh test >$T/out 2>&1 ); rc=$?
+( cd $T/elsewhere && echo n | $T/tools/importDB.sh test --latest >$T/out 2>&1 ); rc=$?
 ok "Import abgebrochen (N): Exit 0 wie bisher" "[ $rc -eq 0 ]"
 
 # 3. gpg fehlt
@@ -21,7 +21,7 @@ ok "Export ohne gpg: Meldung, Exit 1, vor Passwortabfrage" "[ $rc -eq 1 ] && gre
 ( cd $T/elsewhere && printf 'n\n' | PATH="$STUBS:$NOGPG" $T/tools/exportDB.sh test >$T/out 2>&1 ); rc=$?
 ok "Export ohne gpg, aber unverschluesselt: laeuft" "[ $rc -eq 0 ]"
 printf 'x' | gpg --batch --yes -q --pinentry-mode loopback --passphrase geheim -c -o $D/proj-test-2026-02-01-10Uhr.sql.gz.gpg
-( cd $T/elsewhere && printf 'geheim\ny\n' | PATH="$STUBS:$NOGPG" $T/tools/importDB.sh test >$T/out 2>&1 ); rc=$?
+( cd $T/elsewhere && printf 'geheim\ny\n' | PATH="$STUBS:$NOGPG" $T/tools/importDB.sh test --latest >$T/out 2>&1 ); rc=$?
 ok "Import .gpg ohne gpg: Meldung, Exit 1, keine Passwortabfrage" "[ $rc -eq 1 ] && grep -q 'gpg ist nicht installiert' $T/out && ! grep -q 'Falsches Passwort' $T/out && ! grep -q 'Passwort für' $T/out"
 rm -f $D/*
 

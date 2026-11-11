@@ -111,23 +111,27 @@ Existiert eine Datei `db_ddev.conf`, bricht das Skript ab, weil sie ignoriert w�
 ./importDB.sh dev
 ```
 
-Importiert den neuesten Dump der Zielumgebung. Optional kann eine konkrete Datei oder eine Quell-Umgebung angegeben werden:
+Zeigt eine nach Datum sortierte Liste der Dumps der Zielumgebung (neuester zuerst, Nummer 1). Enter wählt die Nummer 1, also den neuesten Dump. Die Quell-Umgebung wird mit `--from` angegeben, eine konkrete Datei als 2. Parameter:
 
 ```
-./importDB.sh update dev
+./importDB.sh update --from dev
+./importDB.sh update dump.sql.gz
 ```
 
-Importiert den neuesten `dev`-Dump in die `update`-Umgebung (Zugangsdaten bleiben die der Zielumgebung).
+Der erste Aufruf zeigt die Liste der `dev`-Dumps und importiert die Auswahl in die `update`-Umgebung (Zugangsdaten bleiben die der Zielumgebung). Die Liste ist immer auf den PREFIX der Quelle gefiltert (`--from`, sonst die Zielumgebung).
 
-Alternativ kann mit `list` eine nach Datum sortierte Auswahl aller Dumps im Dump-Verzeichnis angezeigt werden (neuester zuerst, Nummer 1):
+Mit `--latest` wird ohne Liste direkt der neueste Dump genommen:
 
 ```
-./importDB.sh update list
+./importDB.sh update --from dev --latest
+./importDB.sh dev --latest
 ```
+
+Die alte Form `./importDB.sh update dev` (Quell-Umgebung als 2. Parameter) und das Wort `list` gibt es nicht mehr. Das Skript bricht mit einem Hinweis auf `--from` bzw. die Liste ab. Ein Dateiname zusammen mit `--from` oder `--latest` wird abgelehnt.
 
 Vor jedem Import erfolgt eine Sicherheitsabfrage, da die Zieldatenbank überschrieben wird.
 
-Wurde der Dump automatisch gewählt (neuester Dump einer Quell-Umgebung oder des eigenen PREFIX), lautet die Abfrage `(y/N/l)`. Mit `l` (und Enter) wird die Liste der Dumps dieser Quelle gezeigt (gleicher PREFIX, neueste zuerst), nach der Auswahl kommt die Sicherheitsabfrage erneut mit dem neuen Dateinamen. Ist der gewählte Dump verschlüsselt, wird sein Passwort abgefragt und geprüft. Bestätigt wird weiterhin mit `y` und Enter, nicht mit einem einzelnen Tastendruck. Bei `list` oder einer direkt angegebenen Datei bleibt es bei `(y/N)`.
+Wurde der Dump automatisch gewählt (`--latest`), lautet die Abfrage `(y/N/l)`. Mit `l` (und Enter) wird die Liste der Dumps dieser Quelle gezeigt (gleicher PREFIX, neueste zuerst), nach der Auswahl kommt die Sicherheitsabfrage erneut mit dem neuen Dateinamen. Ist der gewählte Dump verschlüsselt, wird sein Passwort abgefragt und geprüft. Bestätigt wird weiterhin mit `y` und Enter, nicht mit einem einzelnen Tastendruck. Bei der Auswahl aus der Liste oder einer direkt angegebenen Datei bleibt es bei `(y/N)`.
 
 #### Kompletter Austausch der Datenbank
 
@@ -146,28 +150,29 @@ Mit `--patch` werden nur die Befehle aus einer SQL-Datei ausgeführt, z. B. ein 
 ```
 ./importDB.sh live aenderungen.sql --patch
 ./importDB.sh ddev aenderungen.sql.gz --patch
-./importDB.sh stage list --patch
 ./importDB.sh stage --patch
 ```
 
-Erlaubt sind `.sql`- und `.sql.gz`-Dateien, direkt angegeben (von überall) oder über `list` aus dem Patch-Ordner (Standard `$HOME/sql-patches`, siehe Einrichtung). Ohne 2. Parameter wird ebenfalls diese Liste gezeigt, nach Datum sortiert (neueste zuerst). Dumps liegen in einem eigenen Ordner und können deshalb nicht versehentlich aus der Liste gewählt werden. Mit einer Quell-Umgebung (`./importDB.sh stage live --patch`) bricht das Skript ab, weil damit ein kompletter Dump gemeint wäre. Verschlüsselte Dateien (`.sql.gz.gpg`) werden abgelehnt, sie vorher mit `./decryptDB.sh datei.sql.gz.gpg` entschlüsseln, das Ergebnis (`.sql.gz`) geht dann.
+Erlaubt sind `.sql`- und `.sql.gz`-Dateien, direkt angegeben (von überall) oder per Liste aus dem Patch-Ordner (Standard `$HOME/sql-patches`, siehe Einrichtung). Ohne Dateiname wird diese Liste gezeigt, nach Datum sortiert (neueste zuerst). Dumps liegen in einem eigenen Ordner und können deshalb nicht versehentlich aus der Liste gewählt werden. Mit `--from` oder `--latest` (`./importDB.sh stage --from live --patch`) bricht das Skript ab, weil damit ein kompletter Dump gemeint wäre. Verschlüsselte Dateien (`.sql.gz.gpg`) werden abgelehnt, sie vorher mit `./decryptDB.sh datei.sql.gz.gpg` entschlüsseln, das Ergebnis (`.sql.gz`) geht dann.
 
 Vor der Sicherheitsabfrage wird der (entpackte) Inhalt der Datei angezeigt: bei mehr als 30 Zeilen nur die ersten 30 plus die Gesamtzahl, Zeilen mit mehr als 200 Zeichen werden abgeschnitten (`…`). Ist die Datei ein mysqldump (erkannt am Kopf `-- MySQL dump` bzw. `-- MariaDB dump`), erscheint zusätzlich ein Hinweis: Mit `--patch` werden nur die darin enthaltenen Tabellen ersetzt, alle anderen bleiben erhalten. Das ist erlaubt, z. B. um gezielt eine einzelne Tabelle zu ersetzen. Bei DDEV wird automatisch `ddev import-db --no-drop` verwendet, weil DDEV die Datenbank sonst vorher leert. Beim ersten fehlerhaften Befehl bricht `mysql` ab, die Befehle davor bleiben ausgeführt.
 
 #### Parameter im Überblick
 
-Bewusste Abweichung von der Aufrufkonvention: Der 2. Parameter hat je nach Inhalt drei Bedeutungen (Datei, Quell-Umgebung, `list`), und `ddev`/`decrypt` sind reservierte Namen an der Umgebungs-Position. Das bleibt aus Bedienkomfort und wegen vorhandener Gewohnheit so; eine Alternative mit `--from <quell-umgebung>` ist als Idee notiert (`handoff/someday-maybe-liste.md`). Neue Befehle (`db-send`, `db-fetch`) folgen der Konvention.
+Der Import folgt der Aufrufkonvention (eine Position, eine Bedeutung): Position 1 ist das Ziel, Position 2 nur ein Dateiname, die Quell-Umgebung steht in `--from`. Bewusste Abweichung: `ddev` und `decrypt` sind echte Modi und bleiben reservierte Namen an der Umgebungs-Position (eigene Optionen oder Befehle brächten Aufwand ohne Gewinn im Alltag). Bei `exportDB.sh` gilt das für `ddev` genauso.
 
 ```
-./importDB.sh <wohin> [woher] [--gunzip] [--patch]
+./importDB.sh <wohin> [datei] [--from <quelle>] [--latest] [--gunzip] [--patch]
 ```
 
 | Parameter | Bedeutung |
 | --- | --- |
 | 1. Parameter (wohin) | Ziel-Umgebung (`db_<name>.conf`) oder ein reservierter Name: `ddev` oder `decrypt` |
-| 2. Parameter (woher) | Nichts: neuester Dump der Ziel-Umgebung (bei `ddev` und `decrypt` stattdessen die Liste). Sonst eine Quell-Umgebung, ein Dateiname (`.sql`, `.sql.gz`, `.sql.gz.gpg`) oder `list` |
+| 2. Parameter (datei) | Nichts: Liste der Dumps (Enter = Nr. 1, der neueste). Sonst ein Dateiname (`.sql`, `.sql.gz`, `.sql.gz.gpg`) |
+| `--from <quelle>` | Quell-Umgebung: Liste bzw. `--latest` beziehen sich auf deren PREFIX (Standard: PREFIX der Ziel-Umgebung; bei `ddev` und `decrypt` alle Dumps). Nicht mit Dateiname oder `--patch` |
+| `--latest` | Ohne Liste direkt den neuesten Dump nehmen. Bei `ddev` und `decrypt` nur mit `--from`. Nicht mit Dateiname oder `--patch` |
 | `--gunzip` | Nur bei `decrypt`: zusätzlich entpacken. Beim normalen Import nur ein Hinweis, weil dort immer automatisch entpackt wird |
-| `--patch` | Nur die Befehle einer SQL-Datei ausführen, ohne die Datenbank vorher zu leeren. Nur beim Import und nur mit einer `.sql`- oder `.sql.gz`-Datei oder `list` als 2. Parameter (ohne 2. Parameter: `list` aus dem Patch-Ordner) |
+| `--patch` | Nur die Befehle einer SQL-Datei ausführen, ohne die Datenbank vorher zu leeren. Nur beim Import und nur mit einer `.sql`- oder `.sql.gz`-Datei als 2. Parameter (ohne Dateiname: Liste aus dem Patch-Ordner) |
 
 Optionen mit `--` dürfen an beliebiger Stelle stehen. Unbekannte Optionen brechen das Skript ab.
 
@@ -177,27 +182,27 @@ Optionen mit `--` dürfen an beliebiger Stelle stehen. Unbekannte Optionen brech
 
 ```
 cd ~/projekte/mein-ddev-projekt
-~/scripts/db-tools/importDB.sh ddev dev
-~/scripts/db-tools/importDB.sh ddev list
+~/scripts/db-tools/importDB.sh ddev --from dev
+~/scripts/db-tools/importDB.sh ddev
 ~/scripts/db-tools/importDB.sh ddev dump.sql.gz
 ```
 
-Ohne zweiten Parameter wird die Liste aller Dumps gezeigt, weil es keinen eigenen PREFIX gibt. Der Dump wird per Pipe an `ddev import-db` übergeben, verschlüsselte und komprimierte Dumps landen dabei nie unverschlüsselt oder entpackt auf der Platte. Existiert eine Datei `db_ddev.conf`, bricht das Skript ab, weil sie ignoriert würde.
+Ohne Dateiname und ohne `--from` wird die Liste aller Dumps gezeigt, weil es keinen eigenen PREFIX gibt (`--latest` braucht deshalb `--from`). Der Dump wird per Pipe an `ddev import-db` übergeben, verschlüsselte und komprimierte Dumps landen dabei nie unverschlüsselt oder entpackt auf der Platte. Existiert eine Datei `db_ddev.conf`, bricht das Skript ab, weil sie ignoriert würde.
 
-Bei `ddev` werden beide Dump-Ordner durchsucht, `DDEV_DUMP_DIR` und `DUMP_DIR`, damit auch Dumps anderer Umgebungen (`./importDB.sh ddev stage`) gefunden werden. Als neuester Dump zählt das Datum über beide Ordner hinweg. Die Liste (`list` und `l` bei der Sicherheitsabfrage) ist eine gemeinsame, nach Datum sortierte Liste. Sind die Ordner verschieden, stehen oben beide Pfade und hinter jedem Eintrag der Ordnername als Label (`[00_dumps]`). Haben beide Ordner denselben Namen, wird stattdessen der volle Pfad als Label gezeigt. Sind beide Ordner gleich, wird nur einmal gesucht und es gibt kein Label. Alle anderen Ziele sehen nur `DUMP_DIR`.
+Bei `ddev` werden beide Dump-Ordner durchsucht, `DDEV_DUMP_DIR` und `DUMP_DIR`, damit auch Dumps anderer Umgebungen (`./importDB.sh ddev --from stage`) gefunden werden. Als neuester Dump zählt das Datum über beide Ordner hinweg. Die Liste (und `l` bei der Sicherheitsabfrage) ist eine gemeinsame, nach Datum sortierte Liste. Sind die Ordner verschieden, stehen oben beide Pfade und hinter jedem Eintrag der Ordnername als Label (`[00_dumps]`). Haben beide Ordner denselben Namen, wird stattdessen der volle Pfad als Label gezeigt. Sind beide Ordner gleich, wird nur einmal gesucht und es gibt kein Label. Alle anderen Ziele sehen nur `DUMP_DIR`.
 
 #### Dumps entschlüsseln
 
 Mit `decrypt` (oder der Kurzform `decryptDB.sh`) wird ein Dump nur entschlüsselt, ohne ihn zu importieren. Das Ergebnis landet im aktuellen Ordner:
 
 ```
-./decryptDB.sh list              # dump.sql.gz.gpg wird zu dump.sql.gz
-./decryptDB.sh list --gunzip     # zusätzlich entpackt: dump.sql
-./decryptDB.sh dev --gunzip
+./decryptDB.sh                   # Dump aus Liste wählen, dump.sql.gz.gpg wird zu dump.sql.gz
+./decryptDB.sh --gunzip          # zusätzlich entpackt: dump.sql
+./decryptDB.sh --from dev --latest --gunzip
 ./decryptDB.sh pfad/dump.sql.gz.gpg
 ```
 
-`./decryptDB.sh ...` ist gleichbedeutend mit `./importDB.sh decrypt ...`. Die Quelle ist eine Quell-Umgebung, ein Dateiname oder `list` (ohne Angabe wird `list` gezeigt). Existiert die Zieldatei schon, wird vor dem Überschreiben nachgefragt. Ein nicht verschlüsselter Dump wird ohne `--gunzip` mit einer Meldung abgelehnt, mit `--gunzip` wird er nur entpackt (ist er gar nicht komprimiert, z. B. eine `.sql`, gibt es nichts zu tun und das Skript meldet das). Die Ergebnisdatei ist nur für den Besitzer les- und schreibbar (Rechte 600), weil sie den Inhalt der Datenbank im Klartext enthält.
+`./decryptDB.sh ...` ist gleichbedeutend mit `./importDB.sh decrypt ...`. Die Quelle ist ein Dateiname oder die Liste (ohne Angabe wird sie gezeigt, mit `--from` auf eine Umgebung gefiltert, mit `--from` und `--latest` direkt der neueste Dump). Existiert die Zieldatei schon, wird vor dem Überschreiben nachgefragt. Ein nicht verschlüsselter Dump wird ohne `--gunzip` mit einer Meldung abgelehnt, mit `--gunzip` wird er nur entpackt (ist er gar nicht komprimiert, z. B. eine `.sql`, gibt es nichts zu tun und das Skript meldet das). Die Ergebnisdatei ist nur für den Besitzer les- und schreibbar (Rechte 600), weil sie den Inhalt der Datenbank im Klartext enthält.
 
 Standardmäßig bleibt die Datei komprimiert (`.sql.gz`), denn sie ist entpackt um ein Vielfaches größer und lässt sich direkt ansehen, ohne sie zu entpacken:
 

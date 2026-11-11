@@ -35,7 +35,7 @@ ok "DB_PORT ohne Tunnel: -P, kein ssh" "[ ! -e $T/ssh.log ] && grep -q 'mysqldum
 # --- Import mit Tunnel ---
 rm -f "$T/ssh.log" "$T/db.args"
 printf 'CREATE TABLE t (id int);\n' | gzip > "$D/proj-tun-2026-01-01.sql.gz"
-echo y | "$T/tools/importDB.sh" tun >$T/out 2>&1; rc=$?
+echo y | "$T/tools/importDB.sh" tun --latest >$T/out 2>&1; rc=$?
 ok "import Tunnel: Exit 0, mysql ueber 127.0.0.1:3307, Tunnel geschlossen" "[ $rc -eq 0 ] && grep -q 'mysql -h 127.0.0.1 -P 3307 ' $T/db.args && grep -q TUNNEL-EXIT $T/ssh.log"
 
 # --- Werte einer Umgebung bleiben nicht in der naechsten haengen ---

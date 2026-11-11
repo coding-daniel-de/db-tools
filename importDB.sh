@@ -3,40 +3,63 @@
 # Optionen (--...) an beliebiger Stelle herausnehmen, danach gelten nur noch die Positionsparameter
 GUNZIP=0
 PATCH=0
+LATEST=0
+FROM_ENV=""
 POSITIONAL=()
-for ARG in "$@"; do
-    case "$ARG" in
+while [ $# -gt 0 ]; do
+    case "$1" in
         --gunzip)
             GUNZIP=1
             ;;
         --patch)
             PATCH=1
             ;;
+        --latest)
+            LATEST=1
+            ;;
+        --from)
+            if [ -z "$2" ] || [[ "$2" == --* ]]; then
+                echo "Fehler: --from braucht eine Quell-Umgebung (z. B. --from dev)!"
+                exit 1
+            fi
+            FROM_ENV="$2"
+            shift
+            ;;
         --*)
-            echo "Fehler: Unbekannte Option '${ARG}'!"
+            echo "Fehler: Unbekannte Option '${1}'!"
             exit 1
             ;;
         *)
-            POSITIONAL+=("$ARG")
+            POSITIONAL+=("$1")
             ;;
     esac
+    shift
 done
 set -- "${POSITIONAL[@]}"
 
 # Hilfe-Text anzeigen, wenn der erste Parameter komplett fehlt
 if [ -z "$1" ]; then
     echo "Fehler: Bitte gib die Umgebung an!"
-    echo "Nutzung: $0 [ziel-umgebung | ddev | decrypt] [optional: dateiname.sql[.gz[.gpg]] | quell-umgebung | list] [--gunzip] [--patch]"
-    echo "         mit --patch: 2. Parameter ist dateiname.sql[.gz] oder list (Patch-Ordner), ohne Angabe wird list gezeigt"
-    echo "Beispiel: $0 dev"
-    echo "Beispiel: $0 update dev    (neuesten dev-Dump nach update importieren)"
-    echo "Beispiel: $0 update list   (Dump aus einer Liste aller Dumps auswählen)"
-    echo "Beispiel: $0 ddev dev      (dev-Dump in das DDEV-Projekt im aktuellen Ordner importieren)"
-    echo "Beispiel: $0 ddev list     (dito, Dump aus einer Liste auswählen)"
-    echo "Beispiel: $0 decrypt list  (Dump nur entschlüsseln, Ergebnis im aktuellen Ordner)"
-    echo "Beispiel: $0 decrypt dev --gunzip   (entschlüsseln und entpacken, --gunzip nur bei decrypt)"
-    echo "Beispiel: $0 live aenderungen.sql --patch   (nur die Befehle der Datei ausführen, DB wird nicht geleert)"
-    echo "Beispiel: $0 stage list --patch   (dito, Datei aus einer Liste des Patch-Ordners auswählen)"
+    echo "Nutzung: $0 <ziel-umgebung | ddev | decrypt> [dateiname.sql[.gz[.gpg]]] [--from quell-umgebung] [--latest] [--gunzip] [--patch]"
+    echo "         ohne Dateiname wird eine Liste der Dumps gezeigt (Enter = Nr. 1, der neueste)"
+    echo "         --from filtert die Liste auf die Dumps dieser Umgebung (sonst auf die der Ziel-Umgebung)"
+    echo "         --latest nimmt ohne Liste den neuesten Dump"
+    echo "         mit --patch: Liste bzw. Dateiname im Patch-Ordner (.sql/.sql.gz), ohne --from und --latest"
+    echo "Beispiel: $0 dev                      (Liste der dev-Dumps, in die Umgebung dev importieren)"
+    echo "Beispiel: $0 update --from dev        (Liste der dev-Dumps, nach update importieren)"
+    echo "Beispiel: $0 update --from dev --latest   (neuesten dev-Dump ohne Liste nach update importieren)"
+    echo "Beispiel: $0 update dump.sql.gz       (diese Datei nach update importieren)"
+    echo "Beispiel: $0 ddev --from dev          (dev-Dump aus Liste in das DDEV-Projekt im aktuellen Ordner importieren)"
+    echo "Beispiel: $0 ddev                     (dito, Liste aller Dumps)"
+    echo "Beispiel: $0 decrypt                  (Dump aus Liste nur entschlüsseln, Ergebnis im aktuellen Ordner)"
+    echo "Beispiel: $0 decrypt --from dev --gunzip   (entschlüsseln und entpacken, --gunzip nur bei decrypt)"
+    echo "Beispiel: $0 live aenderungen.sql --patch  (nur die Befehle der Datei ausführen, DB wird nicht geleert)"
+    echo "Beispiel: $0 stage --patch            (dito, Datei aus einer Liste des Patch-Ordners auswählen)"
+    exit 1
+fi
+
+if [ $# -gt 2 ]; then
+    echo "Fehler: Zu viele Parameter ('${3}')! Erlaubt sind Ziel und optional ein Dateiname, die Quell-Umgebung steht in --from."
     exit 1
 fi
 
@@ -50,6 +73,9 @@ source "${SCRIPT_DIR}/dbtools-lib.sh" || exit 1
 
 # Zweck eines reservierten Namens für den ersten Parameter (keine Umgebung mit db_<name>.conf).
 # Gibt für normale Umgebungen nichts aus.
+# BEWUSSTE ABWEICHUNG von der Aufrufkonvention (Modi nicht an der Umgebungs-Position): ddev und
+# decrypt sind echte Modi und bleiben als reservierte Namen an Position 1. Ein Umbau auf --ddev
+# bzw. --decrypt brächte Aufwand ohne Gewinn im Alltag (siehe README).
 reserved_purpose() {
     case "$1" in
         ddev) echo "den Import in das DDEV-Projekt im aktuellen Ordner" ;;
@@ -146,7 +172,10 @@ select_dump() {
         fi
         echo "  $((I + 1))) $(basename "${DUMPS[$I]}")${LABEL}"
     done
-    read -p "Nummer wählen: " SELECTION
+    # Enter nimmt Nr. 1 (neueste), aber nur bei echter Eingabe: bei EOF (read schlägt fehl) kein Default
+    if read -p "Nummer wählen [1 = neueste]: " SELECTION; then
+        SELECTION="${SELECTION:-1}"
+    fi
     if ! [[ "$SELECTION" =~ ^[0-9]+$ ]] || [ "$SELECTION" -lt 1 ] || [ "$SELECTION" -gt "${#DUMPS[@]}" ]; then
         echo "Fehler: Ungültige Auswahl '${SELECTION}'!"
         exit 1
@@ -286,23 +315,22 @@ fi
 
 # --patch nur beim Import und nur mit einer konkreten Datei oder der Liste des Patch-Ordners,
 # damit nicht versehentlich ein kompletter Dump (neuester, aus einer Quell-Umgebung) als Patch
-# läuft. Ohne 2. Parameter wird die Liste gezeigt.
+# läuft. Ohne Dateiname wird die Liste gezeigt.
 if [ "$PATCH" -eq 1 ]; then
     if [ "$ENV" = "decrypt" ]; then
         echo "Fehler: --patch gibt es nur beim Import, nicht bei decrypt!"
         exit 1
     fi
     case "$2" in
-        ""|list|*.sql|*.sql.gz) ;;
         *.sql.gz.gpg)
             echo "Fehler: --patch nimmt keine verschlüsselten Dateien! Vorher mit 'decryptDB.sh $2' entschlüsseln, das Ergebnis (.sql.gz) geht dann."
             exit 1
             ;;
-        *)
-            echo "Fehler: --patch braucht als 2. Parameter eine .sql- oder .sql.gz-Datei oder 'list'!"
-            exit 1
-            ;;
     esac
+    if [ -n "$FROM_ENV" ] || [ "$LATEST" -eq 1 ]; then
+        echo "Fehler: --patch nimmt weder --from noch --latest (Patch-Dateien liegen im Patch-Ordner und haben keinen Umgebungs-Präfix)!"
+        exit 1
+    fi
 fi
 
 # Voller Import in eine normale Umgebung: die Ziel-DB wird vorher komplett geleert, damit danach
@@ -325,51 +353,62 @@ if [ "$ENV" = "ddev" ] && [ "$(realpath -m "$DDEV_DUMP_DIR")" != "$(realpath -m 
 fi
 
 # Dump-Datei bestimmen.
-# BEWUSSTE ABWEICHUNG von der Aufrufkonvention für neue Befehle (eine Position, eine
-# Bedeutung): Der 2. Parameter ist je nach Inhalt Datei, Quell-Umgebung oder "list". Grund: kurze Form
-# im Alltag ("db-import update dev") und bestehende Gewohnheit; Alternative mit --from ist notiert
-# in handoff/someday-maybe-liste.md.
-# - 2. Parameter endet auf .sql/.sql.gz/.sql.gz.gpg -> als Dateiname behandeln
-# - 2. Parameter ist "list" -> alle Dumps im Dump-Verzeichnis zur Auswahl anzeigen,
-#   bei --patch stattdessen alle .sql/.sql.gz im Patch-Ordner
-# - 2. Parameter ist sonst gesetzt -> als Quell-Umgebung behandeln, deren PREFIX
-#   für die Dump-Suche übernehmen (Zugangsdaten bleiben die der Ziel-Umgebung!)
-# - kein 2. Parameter -> neuesten Dump der Ziel-Umgebung (eigener PREFIX) suchen;
-#   reservierte Namen haben keinen eigenen PREFIX, dort wird stattdessen "list" gezeigt,
-#   ebenso bei --patch
-SOURCE_ARG="$2"
-if [ -z "$SOURCE_ARG" ] && { is_reserved_env "$ENV" || [ "$PATCH" -eq 1 ]; }; then
-    SOURCE_ARG="list"
-fi
-if [ -n "$SOURCE_ARG" ]; then
-    case "$SOURCE_ARG" in
+# Der 2. Parameter ist nur ein Dateiname (.sql/.sql.gz/.sql.gz.gpg). Die Quell-Umgebung steht in
+# --from, ohne Dateiname kommt die Liste (Enter = Nr. 1, der neueste), --latest nimmt den neuesten
+# Dump ohne Liste. Die Liste und --latest filtern auf den PREFIX der Quell-Umgebung (--from) bzw.
+# der Ziel-Umgebung. Zugangsdaten bleiben immer die der Ziel-Umgebung! ddev und decrypt haben
+# keinen eigenen PREFIX: ohne --from zeigt die Liste alle Dumps, --latest braucht dort --from.
+# --patch: Liste bzw. Dateiname im Patch-Ordner (ohne --from und --latest, siehe oben).
+FILE_ARG="$2"
+if [ -n "$FILE_ARG" ]; then
+    case "$FILE_ARG" in
         *.sql|*.sql.gz|*.sql.gz.gpg)
-            FILE="$SOURCE_ARG"
-            ;;
-        list)
-            if [ "$PATCH" -eq 1 ]; then
-                SEARCH_DIRS=("$PATCH_DIR")
-                select_dump "Patch-Dateien" "" .sql .sql.gz
-            else
-                select_dump "Dumps" "" .sql .sql.gz .sql.gz.gpg
-            fi
+            FILE="$FILE_ARG"
             ;;
         *)
-            SOURCE_CONF="${SCRIPT_DIR}/db_${SOURCE_ARG}.conf"
-            if [ ! -f "$SOURCE_CONF" ]; then
-                echo "Fehler: '$SOURCE_ARG' ist weder eine Dump-Datei noch wurde 'db_${SOURCE_ARG}.conf' gefunden!"
-                exit 1
+            echo "Fehler: '${FILE_ARG}' ist keine Dump-Datei (.sql, .sql.gz oder .sql.gz.gpg)!"
+            if [ "$FILE_ARG" = "list" ]; then
+                echo "Hinweis: 'list' gibt es nicht mehr. Ohne Dateiname wird die Liste automatisch gezeigt."
+            elif [ -f "${SCRIPT_DIR}/db_${FILE_ARG}.conf" ]; then
+                echo "Hinweis: Die Quell-Umgebung wird mit --from angegeben: $0 ${ENV} --from ${FILE_ARG}"
             fi
-            SOURCE_PREFIX=$(grep -E '^PREFIX=' "$SOURCE_CONF" | head -n 1 | cut -d '=' -f2- | tr -d '"')
-            if [ -z "$SOURCE_PREFIX" ]; then
-                echo "Fehler: In '$SOURCE_CONF' wurde kein PREFIX gefunden!"
-                exit 1
-            fi
-            find_latest_dump "$SOURCE_PREFIX" "Umgebung '$SOURCE_ARG' (Präfix '${SOURCE_PREFIX}')"
+            exit 1
             ;;
     esac
+    if [ -n "$FROM_ENV" ] || [ "$LATEST" -eq 1 ]; then
+        echo "Fehler: Zusammen mit einem Dateinamen sind --from und --latest nicht sinnvoll!"
+        exit 1
+    fi
+elif [ "$PATCH" -eq 1 ]; then
+    SEARCH_DIRS=("$PATCH_DIR")
+    select_dump "Patch-Dateien" "" .sql .sql.gz
 else
-    find_latest_dump "$PREFIX" "Präfix '${PREFIX}'"
+    FILTER_PREFIX=""
+    FILTER_TEXT=""
+    if [ -n "$FROM_ENV" ]; then
+        SOURCE_CONF="${SCRIPT_DIR}/db_${FROM_ENV}.conf"
+        if [ ! -f "$SOURCE_CONF" ]; then
+            echo "Fehler: Für --from '${FROM_ENV}' wurde 'db_${FROM_ENV}.conf' nicht gefunden (gesucht in '${SCRIPT_DIR}')!"
+            exit 1
+        fi
+        FILTER_PREFIX=$(grep -E '^PREFIX=' "$SOURCE_CONF" | head -n 1 | cut -d '=' -f2- | tr -d '"')
+        if [ -z "$FILTER_PREFIX" ]; then
+            echo "Fehler: In '$SOURCE_CONF' wurde kein PREFIX gefunden!"
+            exit 1
+        fi
+        FILTER_TEXT="Umgebung '${FROM_ENV}' (Präfix '${FILTER_PREFIX}')"
+    elif ! is_reserved_env "$ENV"; then
+        FILTER_PREFIX="$PREFIX"
+        FILTER_TEXT="Präfix '${PREFIX}'"
+    elif [ "$LATEST" -eq 1 ]; then
+        echo "Fehler: --latest braucht bei '${ENV}' eine Quell-Umgebung (--from <umgebung>)!"
+        exit 1
+    fi
+    if [ "$LATEST" -eq 1 ]; then
+        find_latest_dump "$FILTER_PREFIX" "$FILTER_TEXT"
+    else
+        select_dump "Dumps" "${FILTER_PREFIX:+${FILTER_PREFIX}-}" .sql .sql.gz .sql.gz.gpg
+    fi
 fi
 
 # Prüfen, ob die Dump-Datei existiert

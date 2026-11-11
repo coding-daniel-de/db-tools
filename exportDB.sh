@@ -123,6 +123,8 @@ abort_export() {
 ENV=$1
 CONF_FILE="${SCRIPT_DIR}/db_${ENV}.conf"
 
+# BEWUSSTE ABWEICHUNG von der Aufrufkonvention (Modi nicht an der Umgebungs-Position): ddev ist ein
+# echter Modus und bleibt als reservierter Name an Position 1 (siehe README).
 if [ "$ENV" = "ddev" ]; then
     # Reservierter Name: eine gleichnamige Config würde ignoriert, deshalb vorher abbrechen
     if [ -f "$CONF_FILE" ]; then
