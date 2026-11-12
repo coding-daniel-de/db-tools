@@ -8,6 +8,8 @@
 #              (ohne --path kommt im Terminal eine Rückfrage, sonst nur ein Hinweis).
 #   --global   Symlinks nach /usr/local/bin für alle Accounts (braucht root, sudo ruft das Skript nicht selbst auf).
 #              Kein PATH-Eintrag und keine Login-Kette nötig. Nicht mit --path oder einem Zielordner kombinierbar.
+#              Die Tab-Vervollständigung kommt als Symlink nach /etc/bash_completion.d/db-tools, wenn der Ordner existiert.
+#              Sonst fragt das Skript im Terminal, ob es /etc/profile.d/db-tools.sh anlegen soll (ohne Terminal nur ein Hinweis).
 #              Bricht ab, wenn die Installation für andere Accounts nicht erreichbar ist (Empfehlung: Klon nach /opt/db-tools).
 
 REPO_DIR="$(cd "$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")" && pwd)"
@@ -102,6 +104,43 @@ for name in "${NAMES[@]}"; do
     fi
 done
 
+# Global: Tab-Vervollständigung planen (COMP_MODE: link = Symlink in bash_completion.d, profile = Drop-in in
+# profile.d, none = nur Hinweis). Die Rückfrage kommt vor dem ersten Anlegen, Konflikte brechen vor dem Anlegen ab.
+# DBTOOLS_GLOBAL_COMPLETION_DIR und DBTOOLS_GLOBAL_PROFILE_DIR nur für die Tests.
+COMP_MODE=none
+COMPLETION_FILE="${REPO_DIR}/dbtools-completion.sh"
+if [ "$GLOBAL" -eq 1 ]; then
+    COMP_DIR="${DBTOOLS_GLOBAL_COMPLETION_DIR:-/etc/bash_completion.d}"
+    PROFILE_DIR="${DBTOOLS_GLOBAL_PROFILE_DIR:-/etc/profile.d}"
+    if [ -d "$COMP_DIR" ]; then
+        COMP_MODE=link
+        COMP_DEST="${COMP_DIR}/db-tools"
+        if [ -e "$COMP_DEST" ] || [ -L "$COMP_DEST" ]; then
+            if [ ! -L "$COMP_DEST" ] || [ "$(readlink -f "$COMP_DEST")" != "$COMPLETION_FILE" ]; then
+                echo "Fehler: '$COMP_DEST' existiert bereits und ist kein Symlink auf '$COMPLETION_FILE'. Es wurde nichts geändert!"
+                exit 1
+            fi
+        fi
+    elif [ -d "$PROFILE_DIR" ] && ss_confirm "$COMP_DIR fehlt. Tab-Vervollständigung stattdessen als $PROFILE_DIR/db-tools.sh anlegen?"; then
+        COMP_MODE=profile
+        COMP_DEST="${PROFILE_DIR}/db-tools.sh"
+        # Kleine echte Datei mit Guard, weil /etc/profile *.sh auch für sh/dash liest (nur POSIX-Syntax, nur interaktives Bash)
+        COMP_CONTENT=$(printf '%s\n' \
+            '# db-tools: Tab-Vervollständigung (angelegt von install.sh --global)' \
+            'if [ -n "$BASH_VERSION" ]; then' \
+            '    case $- in' \
+            "        *i*) [ -f \"${COMPLETION_FILE}\" ] && . \"${COMPLETION_FILE}\" ;;" \
+            '    esac' \
+            'fi')
+        if [ -e "$COMP_DEST" ] || [ -L "$COMP_DEST" ]; then
+            if [ -L "$COMP_DEST" ] || [ "$(cat "$COMP_DEST" 2>/dev/null)" != "$COMP_CONTENT" ]; then
+                echo "Fehler: '$COMP_DEST' existiert bereits und stammt nicht von diesem Installer. Es wurde nichts geändert!"
+                exit 1
+            fi
+        fi
+    fi
+fi
+
 mkdir -p "$TARGET" || exit 1
 
 for name in "${NAMES[@]}"; do
@@ -117,9 +156,30 @@ done
 
 if [ "$GLOBAL" -eq 1 ]; then
     echo
+    case "$COMP_MODE" in
+        link)
+            if [ -L "$COMP_DEST" ]; then
+                echo "Schon vorhanden: $COMP_DEST"
+            else
+                ln -s "$COMPLETION_FILE" "$COMP_DEST" || exit 1
+                echo "Angelegt: $COMP_DEST -> $COMPLETION_FILE (Tab-Vervollständigung, gilt ab der nächsten Shell)"
+            fi
+            ;;
+        profile)
+            if [ -e "$COMP_DEST" ]; then
+                echo "Schon vorhanden: $COMP_DEST"
+            else
+                printf '%s\n' "$COMP_CONTENT" > "$COMP_DEST" || exit 1
+                chmod 644 "$COMP_DEST"
+                echo "Angelegt: $COMP_DEST (Tab-Vervollständigung, gilt ab dem nächsten Login)"
+            fi
+            ;;
+        *)
+            echo "Tab-Vervollständigung nicht eingetragen (optional, pro Account in die ~/.bashrc):"
+            echo "    [ -f \"${COMPLETION_FILE}\" ] && source \"${COMPLETION_FILE}\""
+            ;;
+    esac
     echo "Global installiert. Pro Account (als dieser User): db-init-config legt ~/db-tools-conf/ mit den Vorlagen an."
-    echo "Tab-Vervollständigung (optional, pro Account in die ~/.bashrc):"
-    echo "    [ -f \"${REPO_DIR}/dbtools-completion.sh\" ] && source \"${REPO_DIR}/dbtools-completion.sh\""
     exit 0
 fi
 
