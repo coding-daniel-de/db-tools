@@ -8,14 +8,25 @@ source "${SCRIPT_DIR}/dbtools-lib.sh" || exit 1
 parse_transfer_args "$@" || exit 1
 set -- "${TRANSFER_ARGS[@]}"
 
+# --configs: die Server zeigen, die dieser Befehl annimmt
+if [ "$SHOW_CONFIGS" -eq 1 ]; then
+    print_configs remote
+    exit 0
+fi
+
 if [ "$#" -lt 1 ] || [ "$#" -gt 2 ]; then
     echo "Fehler: Bitte gib den Server an!"
-    echo "Nutzung: $0 <server> [dateiname] [--env <umgebung>] [--patch]"
+    echo "Nutzung: $0 <server> [dateiname] [--env <umgebung>] [--patch] [--configs]"
     echo "Beispiel: $0 projekt-live                     (Dump aus der Liste auf dem Server wählen und holen)"
     echo "Beispiel: $0 projekt-live dump.sql.gz         (diese Datei holen)"
     echo "Beispiel: $0 projekt-live --env live          (Liste auf den PREFIX der Umgebung live eingrenzen)"
     echo "Beispiel: $0 projekt-live --patch             (Patch-Datei aus der Liste auf dem Server holen)"
-    echo "Der Server ist der Name einer remote_<server>.conf (Vorlage: remote_template.conf)."
+    echo "Beispiel: $0 --configs                       (vorhandene Server anzeigen)"
+    echo "Der Server ist der Name einer remote_<server>.conf (Vorlage: conf/remote_template.conf)."
+    if [ "$#" -lt 1 ]; then
+        echo
+        print_configs remote
+    fi
     exit 1
 fi
 

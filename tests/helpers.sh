@@ -12,7 +12,7 @@ PASSFAIL=0
 setup() {
     T=$(mktemp -d "${TMPDIR:-/tmp}/dbtools-test.XXXXXX")
     mkdir -p "$T/tools" "$T/elsewhere"
-    cp "$REPO/exportDB.sh" "$REPO/importDB.sh" "$REPO/decryptDB.sh" "$REPO/backupAll.sh" "$REPO/sendDB.sh" "$REPO/fetchDB.sh" "$REPO/dbtools-lib.sh" "$T/tools/"
+    cp "$REPO/exportDB.sh" "$REPO/importDB.sh" "$REPO/decryptDB.sh" "$REPO/backupAll.sh" "$REPO/sendDB.sh" "$REPO/fetchDB.sh" "$REPO/configsDB.sh" "$REPO/dbtools-lib.sh" "$REPO/dbtools-completion.sh" "$T/tools/"
     printf 'DB_HOST="h"\nDB_USER="u"\nDB_PASS="p"\nDB_NAME="n"\nPREFIX="proj-test"\n' > "$T/tools/db_test.conf"
     printf 'DB_HOST="h"\nDB_USER="u"\nDB_PASS="p"\nDB_NAME="n2"\nPREFIX="proj-other"\n' > "$T/tools/db_other.conf"
     # DDEV-Projekt-Root fuer den ddev-Export (Ordnername ergibt den PREFIX)

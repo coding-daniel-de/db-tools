@@ -5,7 +5,7 @@ B="$T/bin"
 # --- Anlegen, Ordner wird bei Bedarf erstellt ---
 mkdir -p "$T/h0"; : > "$T/h0/.bashrc"
 ( cd "$T/elsewhere" && HOME="$T/h0" "$REPO/install.sh" "$B" </dev/null ) >$T/out 2>&1; rc=$?
-ok "install: Exit 0, fuenf Symlinks mit absolutem Ziel" "[ $rc -eq 0 ] && [ \"\$(readlink $B/db-export)\" = '$REPO/exportDB.sh' ] && [ \"\$(readlink $B/db-import)\" = '$REPO/importDB.sh' ] && [ \"\$(readlink $B/db-decrypt)\" = '$REPO/decryptDB.sh' ] && [ \"\$(readlink $B/db-send)\" = '$REPO/sendDB.sh' ] && [ \"\$(readlink $B/db-fetch)\" = '$REPO/fetchDB.sh' ]"
+ok "install: Exit 0, sechs Symlinks mit absolutem Ziel" "[ $rc -eq 0 ] && [ \"\$(readlink $B/db-export)\" = '$REPO/exportDB.sh' ] && [ \"\$(readlink $B/db-import)\" = '$REPO/importDB.sh' ] && [ \"\$(readlink $B/db-decrypt)\" = '$REPO/decryptDB.sh' ] && [ \"\$(readlink $B/db-send)\" = '$REPO/sendDB.sh' ] && [ \"\$(readlink $B/db-fetch)\" = '$REPO/fetchDB.sh' ] && [ \"\$(readlink $B/db-configs)\" = '$REPO/configsDB.sh' ]"
 ok "install: kein Symlink fuer backupAll" "[ ! -e $B/backupAll.sh ] && ! ls $B | grep -qi backup"
 ok "install: PATH-Hinweis, wenn Zielordner nicht im PATH" "grep -q 'liegt nicht im PATH' $T/out && grep -q 'export PATH=\"$B:' $T/out"
 
@@ -21,7 +21,7 @@ ok "install: ohne Terminal und ohne --path bleibt bashrc unveraendert" "[ ! -s $
 
 # --- Wiederholbar ---
 ( "$REPO/install.sh" "$B" ) >$T/out 2>&1; rc=$?
-ok "install: zweiter Lauf ok, nichts zu tun" "[ $rc -eq 0 ] && [ \"\$(grep -c 'Schon vorhanden' $T/out)\" -eq 5 ]"
+ok "install: zweiter Lauf ok, nichts zu tun" "[ $rc -eq 0 ] && [ \"\$(grep -c 'Schon vorhanden' $T/out)\" -eq 6 ]"
 
 # --- Zielordner im PATH: kein Hinweis ---
 ( PATH="$B:$PATH" "$REPO/install.sh" "$B" ) >$T/out 2>&1
@@ -37,7 +37,7 @@ ok "install: Symlink woandershin -> Abbruch, unveraendert" "[ $rc -ne 0 ] && [ \
 
 # --- Aufruf ueber Symlink findet Lib und Config ---
 mkdir -p "$T/symbin"
-for n in exportDB:db-export importDB:db-import decryptDB:db-decrypt backupAll:backupAll sendDB:db-send fetchDB:db-fetch; do ln -s "$T/tools/${n%%:*}.sh" "$T/symbin/${n##*:}"; done
+for n in exportDB:db-export importDB:db-import decryptDB:db-decrypt backupAll:backupAll sendDB:db-send fetchDB:db-fetch configsDB:db-configs; do ln -s "$T/tools/${n%%:*}.sh" "$T/symbin/${n##*:}"; done
 ( cd "$T/elsewhere" && "$T/symbin/db-export" test --no-encrypt ) >$T/out 2>&1; rc=$?
 ok "Export per Symlink: Config und Lib gefunden" "[ $rc -eq 0 ] && ls $T/sql-dumps/proj-test-*.sql.gz >/dev/null 2>&1"
 ( cd "$T/elsewhere" && "$T/symbin/db-import" </dev/null ) >$T/out 2>&1

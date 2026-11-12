@@ -1,9 +1,29 @@
 # Gemeinsame Funktionen für exportDB.sh und importDB.sh.
 # Wird nur per source geladen (nicht direkt ausführen). Erwartet, dass SCRIPT_DIR gesetzt ist.
 
+# --- Config-Dateien: erst conf/, dann Root ---
+
+# Config-Datei $1 (z. B. db_dev.conf) suchen: erst in conf/, dann im Skript-Ordner (Übergang, bestehende
+# Configs müssen nicht verschoben werden). Gibt den Pfad aus, Rückgabe 1 wenn es sie nirgends gibt.
+# Gibt es sie an beiden Orten, gewinnt conf/.
+find_conf() {
+    if [ -f "${SCRIPT_DIR}/conf/$1" ]; then
+        printf '%s\n' "${SCRIPT_DIR}/conf/$1"
+    elif [ -f "${SCRIPT_DIR}/$1" ]; then
+        printf '%s\n' "${SCRIPT_DIR}/$1"
+    else
+        return 1
+    fi
+}
+
+# Suchorte für Meldungen
+conf_search_text() {
+    echo "'${SCRIPT_DIR}/conf' und '${SCRIPT_DIR}'"
+}
+
 # Verzeichnisse für Dumps (DUMP_DIR), DDEV-Dumps (DDEV_DUMP_DIR), Backups (BACKUP_DIR, Fallback
 # DUMP_DIR) und Patch-Dateien (PATCH_DIR)
-# ermitteln: Default (DUMP_DIR: $HOME/sql-dumps, unabhängig vom Ablageort der Skripte), optional überschrieben durch dbtools.conf (relative Pfade gelten relativ
+# ermitteln: Default (DUMP_DIR: $HOME/sql-dumps, unabhängig vom Ablageort der Skripte), optional überschrieben durch dbtools.conf (conf/ oder Root, relative Pfade gelten relativ
 # zum Skript-Ordner). BACKUP_ENVS (Liste der Umgebungen für backupAll.sh) wird nur durchgereicht.
 # DDEV_DUMP_DIR fällt auf DUMP_DIR zurück, wenn es nicht gesetzt ist.
 resolve_dirs() {
@@ -12,8 +32,9 @@ resolve_dirs() {
     DDEV_DUMP_DIR=""
     BACKUP_DIR=""
     BACKUP_ENVS=""
-    if [ -f "${SCRIPT_DIR}/dbtools.conf" ]; then
-        source "${SCRIPT_DIR}/dbtools.conf"
+    local GLOBAL_CONF
+    if GLOBAL_CONF=$(find_conf dbtools.conf); then
+        source "$GLOBAL_CONF"
     fi
     [ -z "$DDEV_DUMP_DIR" ] && DDEV_DUMP_DIR="$DUMP_DIR"
     [ -z "$BACKUP_DIR" ] && BACKUP_DIR="$DUMP_DIR"
@@ -59,7 +80,7 @@ ask_yes_no() {
 
 # --- Gemeinsame Funktionen für sendDB.sh und fetchDB.sh (Dateien zwischen lokal und Server) ---
 
-# Remote-Config remote_<name>.conf aus dem Skript-Ordner laden. Setzt SSH_HOST, REMOTE_DUMP_DIR und
+# Remote-Config remote_<name>.conf (conf/ oder Skript-Ordner) laden. Setzt SSH_HOST, REMOTE_DUMP_DIR und
 # REMOTE_PATCH_DIR (Standard: sql-dumps und sql-patches, relativ zum Home auf dem Server).
 load_remote_conf() {
     local NAME="$1" CONF
@@ -67,9 +88,8 @@ load_remote_conf() {
         echo "Fehler: Ungültiger Servername '${NAME}'!"
         return 1
     fi
-    CONF="${SCRIPT_DIR}/remote_${NAME}.conf"
-    if [ ! -f "$CONF" ]; then
-        echo "Fehler: '${CONF}' nicht gefunden! Vorlage: remote_template.conf"
+    if ! CONF=$(find_conf "remote_${NAME}.conf"); then
+        echo "Fehler: 'remote_${NAME}.conf' nicht gefunden (gesucht in $(conf_search_text))! Vorlage: conf/remote_template.conf"
         return 1
     fi
     SSH_HOST=""
@@ -82,16 +102,20 @@ load_remote_conf() {
     fi
 }
 
-# Optionen von db-send/db-fetch auswerten (an beliebiger Stelle): --patch, --env <name>, --env=<name>.
-# Setzt PATCH und ENV_FILTER, die Positionsparameter landen im Array TRANSFER_ARGS.
+# Optionen von db-send/db-fetch auswerten (an beliebiger Stelle): --patch, --configs, --env <name>, --env=<name>.
+# Setzt PATCH, SHOW_CONFIGS und ENV_FILTER, die Positionsparameter landen im Array TRANSFER_ARGS.
 parse_transfer_args() {
     PATCH=0
+    SHOW_CONFIGS=0
     ENV_FILTER=""
     TRANSFER_ARGS=()
     while [ $# -gt 0 ]; do
         case "$1" in
             --patch)
                 PATCH=1
+                ;;
+            --configs)
+                SHOW_CONFIGS=1
                 ;;
             --env)
                 if [ -z "$2" ]; then
@@ -118,9 +142,9 @@ parse_transfer_args() {
 
 # PREFIX der Umgebung $1 aus db_<name>.conf lesen und in ENV_PREFIX ablegen
 read_env_prefix() {
-    local CONF="${SCRIPT_DIR}/db_${1}.conf"
-    if ! [[ "$1" =~ ^[A-Za-z0-9._-]+$ ]] || [ ! -f "$CONF" ]; then
-        echo "Fehler: Umgebung '${1}' unbekannt, '${CONF}' nicht gefunden!"
+    local CONF
+    if ! [[ "$1" =~ ^[A-Za-z0-9._-]+$ ]] || ! CONF=$(find_conf "db_${1}.conf"); then
+        echo "Fehler: Umgebung '${1}' unbekannt, 'db_${1}.conf' nicht gefunden (gesucht in $(conf_search_text))!"
         return 1
     fi
     ENV_PREFIX=$(grep -E '^PREFIX=' "$CONF" | head -n 1 | cut -d '=' -f2- | tr -d '"')
@@ -203,5 +227,110 @@ load_db_conf() {
         DB_PORT="$TUNNEL_PORT"
     fi
     [ -n "$DB_PORT" ] && DB_PORT_ARGS=(-P "$DB_PORT")
+    return 0
+}
+
+# --- Übersicht der Configs (--configs, db-configs, Tab-Vervollständigung) ---
+
+# Wert von $2 aus der Config $1 lesen, ohne sie auszuführen (nur Zeilen der Form NAME=wert)
+conf_value() {
+    grep -E "^${2}=" "$1" | head -n 1 | cut -d '=' -f2- | tr -d '"'"'"
+}
+
+# Namen der Configs der Art $1 (db oder remote) ausgeben, eindeutig und sortiert. Die Vorlage
+# (<art>_template.conf) zählt nicht.
+conf_names() {
+    local kind="$1" f name
+    for f in "${SCRIPT_DIR}/conf/${kind}_"*.conf "${SCRIPT_DIR}/${kind}_"*.conf; do
+        [ -f "$f" ] || continue
+        name="${f##*/}"; name="${name#"${kind}_"}"; name="${name%.conf}"
+        [ "$name" = "template" ] && continue
+        printf '%s\n' "$name"
+    done | sort -u
+}
+
+# Tabelle der Configs ausgeben: print_configs <db|remote|all>. Passwörter werden nie angezeigt.
+# Spalten: Name, Art, Ziel, Datei und ggf. ein Hinweis (doppelt/veraltet, unvollständig). Die Datei
+# ist der tatsächlich verwendete Pfad (conf/ gewinnt). Ohne Treffer kommt ein Hinweis auf die Vorlage.
+print_configs() {
+    local KINDS KIND NAME FILE ART TARGET NOTE MISSING V
+    local -a ROWS=()
+    case "$1" in
+        all) KINDS=(db remote) ;;
+        *) KINDS=("$1") ;;
+    esac
+    for KIND in "${KINDS[@]}"; do
+        while IFS= read -r NAME; do
+            [ -n "$NAME" ] || continue
+            FILE=$(find_conf "${KIND}_${NAME}.conf")
+            NOTE=""
+            if [ "$FILE" = "${SCRIPT_DIR}/conf/${KIND}_${NAME}.conf" ] && [ -f "${SCRIPT_DIR}/${KIND}_${NAME}.conf" ]; then
+                NOTE="Hinweis: doppelt/veraltet: ${SCRIPT_DIR}/${KIND}_${NAME}.conf (conf/ gewinnt)"
+            fi
+            MISSING=""
+            if [ "$KIND" = "db" ]; then
+                ART="Datenbank-Umgebung"
+                for V in DB_HOST DB_USER DB_NAME PREFIX; do
+                    [ -n "$(conf_value "$FILE" "$V")" ] || MISSING+=" ${V}"
+                done
+                if [ -n "$MISSING" ]; then
+                    TARGET="-"
+                else
+                    TARGET="$(conf_value "$FILE" DB_HOST)/$(conf_value "$FILE" DB_NAME), Präfix $(conf_value "$FILE" PREFIX)"
+                    [ -n "$(conf_value "$FILE" SSH_TUNNEL)" ] && TARGET+=", Tunnel $(conf_value "$FILE" SSH_TUNNEL)"
+                fi
+            else
+                ART="Server"
+                [ -n "$(conf_value "$FILE" SSH_HOST)" ] || MISSING=" SSH_HOST"
+                if [ -n "$MISSING" ]; then
+                    TARGET="-"
+                else
+                    TARGET="SSH: $(conf_value "$FILE" SSH_HOST)"
+                fi
+            fi
+            if [ -n "$MISSING" ]; then
+                NOTE="Hinweis: unvollständig, es fehlt:${MISSING}${NOTE:+; ${NOTE#Hinweis: }}"
+            fi
+            ROWS+=("${NAME}"$'\t'"${ART}"$'\t'"${TARGET}"$'\t'"${FILE}"$'\t'"${NOTE}")
+        done < <(conf_names "$KIND")
+    done
+    if [ "${#ROWS[@]}" -eq 0 ]; then
+        case "$1" in
+            db) echo "Keine Datenbank-Umgebungen gefunden. Vorlage: conf/db_template.conf (kopieren nach conf/db_<name>.conf)." ;;
+            remote) echo "Keine Server gefunden. Vorlage: conf/remote_template.conf (kopieren nach conf/remote_<name>.conf)." ;;
+            *) echo "Keine Configs gefunden. Vorlagen: conf/db_template.conf, conf/remote_template.conf." ;;
+        esac
+        return 0
+    fi
+    # Spaltenbreiten bestimmen; "Art" nur in der Gesamtübersicht
+    local -a HEAD=(Name Art Ziel Datei)
+    local -a W=(0 0 0 0)
+    local ROW I
+    local -a F
+    for I in 0 1 2 3; do W[$I]=${#HEAD[$I]}; done
+    for ROW in "${ROWS[@]}"; do
+        IFS=$'\t' read -r -a F <<< "$ROW"
+        for I in 0 1 2 3; do
+            [ "${#F[$I]}" -gt "${W[$I]}" ] && W[$I]=${#F[$I]}
+        done
+    done
+    # printf rechnet bei Umlauten mit Bytes, deshalb wird von Hand aufgefüllt
+    pad() { printf '%s%*s' "$1" $(($2 - ${#1})) ''; }
+    if [ "$1" = "all" ]; then
+        echo "$(pad "${HEAD[0]}" "${W[0]}")  $(pad "${HEAD[1]}" "${W[1]}")  $(pad "${HEAD[2]}" "${W[2]}")  ${HEAD[3]}"
+    else
+        echo "$(pad "${HEAD[0]}" "${W[0]}")  $(pad "${HEAD[2]}" "${W[2]}")  ${HEAD[3]}"
+    fi
+    for ROW in "${ROWS[@]}"; do
+        # read verschluckt leere Felder am Ende, deshalb das Hinweisfeld getrennt abtrennen
+        NOTE="${ROW#*$'\t'*$'\t'*$'\t'*$'\t'}"
+        IFS=$'\t' read -r -a F <<< "$ROW"
+        if [ "$1" = "all" ]; then
+            echo "$(pad "${F[0]}" "${W[0]}")  $(pad "${F[1]}" "${W[1]}")  $(pad "${F[2]}" "${W[2]}")  ${F[3]}"
+        else
+            echo "$(pad "${F[0]}" "${W[0]}")  $(pad "${F[2]}" "${W[2]}")  ${F[3]}"
+        fi
+        if [ -n "$NOTE" ]; then printf '  %s\n' "$NOTE"; fi
+    done
     return 0
 }

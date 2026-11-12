@@ -12,17 +12,19 @@ Damit die Tools ohne Pfad aufrufbar sind, legt `install.sh` Symlinks in einem Or
 ./install.sh --path           # dazu ~/bin ohne Rückfrage in den PATH der ~/.bashrc eintragen
 ```
 
-Die Befehle: `db-export` (`exportDB.sh`), `db-import` (`importDB.sh`) und `db-decrypt` (`decryptDB.sh`), `db-send` (`sendDB.sh`) und `db-fetch` (`fetchDB.sh`). `backupAll.sh` bekommt keinen Symlink, es läuft per Cron mit vollem Pfad. Der Zielordner wird bei Bedarf angelegt. Liegt er nicht im `PATH`, fragt `install.sh` im Terminal, ob es den Eintrag in die `~/.bashrc` schreiben soll (mit `--path` ohne Rückfrage; der Eintrag trägt einen Marker (`# bin-path`, derselbe wie bei remote-tools) und kommt nie doppelt). Ohne Terminal und ohne `--path` zeigt es nur die passende Zeile (`~/.profile` nimmt `~/bin` und `~/.local/bin` auf Debian/Ubuntu nur auf, wenn der Ordner beim Login schon existiert). Bindet die Datei, die bash beim Login liest (`~/.bash_profile`, sonst `~/.bash_login`, sonst `~/.profile`), die `~/.bashrc` nicht ein, schlägt `install.sh` (nach Rückfrage, mit `--path` ohne) die Zeile `[ -f ~/.bashrc ] && . ~/.bashrc` dort vor, sonst fehlt der PATH-Eintrag beim SSH-Login (typisch bei einem eigenen `.bash_profile`). Die Hilfsfunktionen dafür stehen in `lib/shell-setup.sh`, laufen ohne `realpath` und ergänzen nur. Ein erneuter Aufruf ist gefahrlos; existiert am Ziel schon etwas anderes (fremde Datei, Symlink woandershin), bricht `install.sh` ab und überschreibt nichts.
+Die Befehle: `db-export` (`exportDB.sh`), `db-import` (`importDB.sh`) und `db-decrypt` (`decryptDB.sh`), `db-send` (`sendDB.sh`) und `db-fetch` (`fetchDB.sh`) sowie `db-configs` (`configsDB.sh`, Übersicht aller Configs). `backupAll.sh` bekommt keinen Symlink, es läuft per Cron mit vollem Pfad. Der Zielordner wird bei Bedarf angelegt. Liegt er nicht im `PATH`, fragt `install.sh` im Terminal, ob es den Eintrag in die `~/.bashrc` schreiben soll (mit `--path` ohne Rückfrage; der Eintrag trägt einen Marker (`# bin-path`, derselbe wie bei remote-tools) und kommt nie doppelt). Ohne Terminal und ohne `--path` zeigt es nur die passende Zeile (`~/.profile` nimmt `~/bin` und `~/.local/bin` auf Debian/Ubuntu nur auf, wenn der Ordner beim Login schon existiert). Bindet die Datei, die bash beim Login liest (`~/.bash_profile`, sonst `~/.bash_login`, sonst `~/.profile`), die `~/.bashrc` nicht ein, schlägt `install.sh` (nach Rückfrage, mit `--path` ohne) die Zeile `[ -f ~/.bashrc ] && . ~/.bashrc` dort vor, sonst fehlt der PATH-Eintrag beim SSH-Login (typisch bei einem eigenen `.bash_profile`). Die Hilfsfunktionen dafür stehen in `lib/shell-setup.sh`, laufen ohne `realpath` und ergänzen nur. Ein erneuter Aufruf ist gefahrlos; existiert am Ziel schon etwas anderes (fremde Datei, Symlink woandershin), bricht `install.sh` ab und überschreibt nichts.
+
+**Tab-Vervollständigung:** `install.sh` trägt außerdem eine Source-Zeile für `dbtools-completion.sh` in die `~/.bashrc` ein (Rückfrage im Terminal, mit `--path` ohne; kommt nie doppelt, erkennbar am Kommentar `# db-tools: Tab-Vervollständigung`). Danach vervollständigt `db-import <TAB>` und `db-export <TAB>` die Datenbank-Umgebungen (dazu die reservierten Wörter `ddev` bzw. `ddev`/`decrypt`, nur wo das Skript sie akzeptiert), `db-send <TAB>` und `db-fetch <TAB>` die Server, `--from`/`--env` die Umgebungen und `--out` Ordner. Die Namen werden erst beim Tab-Druck gelesen, nicht beim Shell-Start.
 
 ## Einrichtung
 
-Für jede Umgebung eine eigene Konfigurationsdatei anlegen, basierend auf `db_template.conf`:
+Alle Configs liegen im Ordner `conf/` (Vorlagen: `conf/db_template.conf`, `conf/remote_template.conf`, `conf/dbtools.conf.example`). Für jede Umgebung eine eigene Konfigurationsdatei anlegen, basierend auf `db_template.conf`:
 
 ```
-cp db_template.conf db_dev.conf
+cp conf/db_template.conf conf/db_dev.conf
 ```
 
-Danach `db_dev.conf` mit den passenden Zugangsdaten füllen:
+Danach `conf/db_dev.conf` mit den passenden Zugangsdaten füllen:
 
 ```
 DB_HOST=""
@@ -32,12 +34,14 @@ DB_NAME=""
 PREFIX="project-dev"
 ```
 
+**Übergang Root → `conf/`:** Configs im Root des db-tools-Ordners (`db_<name>.conf`, `remote_<name>.conf`, `dbtools.conf`) werden weiter gefunden. Gesucht wird erst in `conf/`, dann im Root; gibt es dieselbe Datei an beiden Orten, gewinnt `conf/`. Bestehende Configs müssen nicht verschoben werden, wer will, verschiebt sie von Hand (`mv db_*.conf remote_*.conf dbtools.conf conf/`). Die Übersicht (siehe unten) markiert Root-Dateien, die zusätzlich in `conf/` liegen, als doppelt/veraltet.
+
 Dateien nach dem Muster `db_*.conf` und `remote_*.conf` (außer den `*_template.conf`) werden von Git ignoriert, damit keine echten Zugangsdaten versehentlich veröffentlicht werden.
 
-Optional können das Dump-Verzeichnis (Standard: `$HOME/sql-dumps`, gilt für Export und Import gleichermaßen), der Ordner für DDEV-Exporte (Standard: wie das Dump-Verzeichnis) und der Patch-Ordner für `--patch` (Standard: `$HOME/sql-patches`) über eine globale Konfigurationsdatei angepasst werden, basierend auf `dbtools.conf.example`:
+Optional können das Dump-Verzeichnis (Standard: `$HOME/sql-dumps`, gilt für Export und Import gleichermaßen), der Ordner für DDEV-Exporte (Standard: wie das Dump-Verzeichnis) und der Patch-Ordner für `--patch` (Standard: `$HOME/sql-patches`) über eine globale Konfigurationsdatei angepasst werden, basierend auf `conf/dbtools.conf.example` (auch `dbtools.conf` liegt in `conf/`, mit Root-Fallback wie die anderen):
 
 ```
-cp dbtools.conf.example dbtools.conf
+cp conf/dbtools.conf.example conf/dbtools.conf
 ```
 
 ```
@@ -49,6 +53,18 @@ DDEV_DUMP_DIR=""
 Relative Pfade gelten relativ zum Ordner der Skripte.
 
 `dbtools.conf` wird ebenfalls von Git ignoriert. Tilde (`~`) wird von Bash in Anführungszeichen nicht aufgelöst, stattdessen `$HOME` verwenden, z. B. `DUMP_DIR="$HOME/sqldumps"`.
+
+### Configs anzeigen (`--configs`, `db-configs`)
+
+Jeder Befehl hat die Option `--configs`, die die Configs zeigt, die er annimmt, und dann mit Exit 0 endet:
+
+```
+db-export --configs     db-import --configs     Datenbank-Umgebungen (db_*.conf)
+db-send --configs       db-fetch --configs      Server (remote_*.conf)
+db-configs                                      beides zusammen, mit Spalte "Art"
+```
+
+Die Tabelle zeigt Name, Ziel (bei Umgebungen DB-Host/Name und Präfix, bei Servern der SSH-Alias; **nie Passwörter**) und die Datei, die tatsächlich verwendet wird. Unvollständige Configs erscheinen mit Hinweis statt Daten, Root-Dateien, die auch in `conf/` liegen, mit dem Hinweis "doppelt/veraltet". Die Vorlagen werden nicht gelistet. Ein Aufruf von `db-export`, `db-import`, `db-send` oder `db-fetch` ganz ohne Parameter zeigt zur Hilfe auch diese Tabelle. (`--configs` ist eine Option und kollidiert deshalb nicht mit den reservierten Wörtern `ddev` und `decrypt` an Position 1.)
 
 ## Nutzung
 
@@ -162,7 +178,7 @@ Vor der Sicherheitsabfrage wird der (entpackte) Inhalt der Datei angezeigt: bei 
 Der Import folgt der Aufrufkonvention (eine Position, eine Bedeutung): Position 1 ist das Ziel, Position 2 nur ein Dateiname, die Quell-Umgebung steht in `--from`. Bewusste Abweichung: `ddev` und `decrypt` sind echte Modi und bleiben reservierte Namen an der Umgebungs-Position (eigene Optionen oder Befehle brächten Aufwand ohne Gewinn im Alltag). Bei `exportDB.sh` gilt das für `ddev` genauso.
 
 ```
-./importDB.sh <wohin> [datei] [--from <quelle>] [--latest] [--gunzip] [--patch]
+./importDB.sh <wohin> [datei] [--from <quelle>] [--latest] [--gunzip] [--patch] [--configs]
 ```
 
 | Parameter | Bedeutung |
@@ -217,10 +233,10 @@ Die Tools arbeiten immer lokal auf Dateien. Um einen Dump auf einen anderen Serv
 
 ### Einrichtung eines Servers
 
-Pro Server eine Datei `remote_<name>.conf`, basierend auf `remote_template.conf`:
+Pro Server eine Datei `remote_<name>.conf` in `conf/`, basierend auf `conf/remote_template.conf`:
 
 ```
-cp remote_template.conf remote_projekt-live.conf
+cp conf/remote_template.conf conf/remote_projekt-live.conf
 ```
 
 ```
@@ -236,8 +252,8 @@ Auf dem Server selbst liegen die db-tools nach der Regel für Server unter `~/sc
 ### Aufruf
 
 ```
-db-send <server> [dateiname] [--env <umgebung>] [--patch]
-db-fetch <server> [dateiname] [--env <umgebung>] [--patch]
+db-send <server> [dateiname] [--env <umgebung>] [--patch] [--configs]
+db-fetch <server> [dateiname] [--env <umgebung>] [--patch] [--configs]
 ```
 
 ```

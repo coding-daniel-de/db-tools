@@ -1,3 +1,8 @@
+conf/remote_*.conf
+!conf/remote_template.conf
+conf/db_*.conf
+!conf/db_template.conf
+conf/dbtools.conf
 remote_*.conf
 !remote_template.conf
 db_*.conf

@@ -3,6 +3,7 @@
 # Optionen (--...) an beliebiger Stelle herausnehmen, danach gelten nur noch die Positionsparameter
 DRY_RUN=0
 NO_ENCRYPT=0
+SHOW_CONFIGS=0
 OUT_DIR=""
 POSITIONAL=()
 while [ $# -gt 0 ]; do
@@ -12,6 +13,9 @@ while [ $# -gt 0 ]; do
             ;;
         --no-encrypt)
             NO_ENCRYPT=1
+            ;;
+        --configs)
+            SHOW_CONFIGS=1
             ;;
         --out)
             if [ -z "$2" ]; then
@@ -33,6 +37,18 @@ while [ $# -gt 0 ]; do
 done
 set -- "${POSITIONAL[@]}"
 
+# Ordner dieses Skripts ermitteln, damit der Aufruf aus jedem Ordner funktioniert
+SCRIPT_DIR="$(cd "$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")" && pwd)"
+
+# Gemeinsame Funktionen laden
+source "${SCRIPT_DIR}/dbtools-lib.sh" || exit 1
+
+# --configs: die Datenbank-Umgebungen zeigen, die dieser Befehl annimmt
+if [ "$SHOW_CONFIGS" -eq 1 ]; then
+    print_configs db
+    exit 0
+fi
+
 # Ein Zielordner als Positionsparameter ist nicht (mehr) möglich
 if [ "$#" -gt 1 ]; then
     echo "Fehler: Zielordner bitte mit --out angeben (z. B. --out ~/dumps)!"
@@ -42,20 +58,17 @@ fi
 # Hilfe-Text anzeigen, wenn der erste Parameter komplett fehlt
 if [ -z "$1" ]; then
     echo "Fehler: Bitte gib die Umgebung an!"
-    echo "Nutzung: $0 [umgebung | ddev] [--dry-run] [--no-encrypt] [--out ordner]"
+    echo "Nutzung: $0 [umgebung | ddev] [--dry-run] [--no-encrypt] [--out ordner] [--configs]"
     echo "Beispiel: $0 dev"
     echo "Beispiel: $0 ddev              (DDEV-Projekt im aktuellen Ordner exportieren)"
     echo "Beispiel: $0 ddev --out ~/dumps    (dito, in einen anderen Ordner)"
     echo "Beispiel: $0 ddev --dry-run    (Befehl nur anzeigen, nicht ausführen)"
     echo "Beispiel: $0 dev --no-encrypt --out ~/backups    (ohne Rückfrage, in einen anderen Ordner)"
+    echo "Beispiel: $0 --configs         (vorhandene Umgebungen anzeigen)"
+    echo
+    print_configs db
     exit 1
 fi
-
-# Ordner dieses Skripts ermitteln, damit der Aufruf aus jedem Ordner funktioniert
-SCRIPT_DIR="$(cd "$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")" && pwd)"
-
-# Gemeinsame Funktionen laden
-source "${SCRIPT_DIR}/dbtools-lib.sh" || exit 1
 
 # --- Funktionen ---
 
@@ -121,13 +134,13 @@ abort_export() {
 
 # Umgebung festlegen anhand des Parameters
 ENV=$1
-CONF_FILE="${SCRIPT_DIR}/db_${ENV}.conf"
+CONF_FILE=$(find_conf "db_${ENV}.conf")
 
 # BEWUSSTE ABWEICHUNG von der Aufrufkonvention (Modi nicht an der Umgebungs-Position): ddev ist ein
 # echter Modus und bleibt als reservierter Name an Position 1 (siehe README).
 if [ "$ENV" = "ddev" ]; then
     # Reservierter Name: eine gleichnamige Config würde ignoriert, deshalb vorher abbrechen
-    if [ -f "$CONF_FILE" ]; then
+    if [ -n "$CONF_FILE" ]; then
         echo "Fehler: 'ddev' ist ein reservierter Name für den Export des DDEV-Projekts im aktuellen Ordner."
         echo "Die Datei 'db_ddev.conf' würde ignoriert. Bitte umbenennen oder löschen."
         exit 1
@@ -151,8 +164,8 @@ else
     fi
 
     # Prüfen, ob die zugehörige Konfigurationsdatei existiert
-    if [ ! -f "$CONF_FILE" ]; then
-        echo "Fehler: Konfigurationsdatei 'db_${ENV}.conf' wurde nicht gefunden (gesucht in '${SCRIPT_DIR}')!"
+    if [ -z "$CONF_FILE" ]; then
+        echo "Fehler: Konfigurationsdatei 'db_${ENV}.conf' wurde nicht gefunden (gesucht in $(conf_search_text))!"
         exit 1
     fi
 

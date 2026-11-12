@@ -1,9 +1,9 @@
 #!/bin/bash
 
 # Legt Symlinks für die Tools in einem Ordner im PATH an, damit sie ohne Pfad aufrufbar sind:
-# db-export, db-import, db-decrypt, db-send, db-fetch (backupAll.sh läuft per Cron mit vollem Pfad und bekommt keinen).
+# db-export, db-import, db-decrypt, db-send, db-fetch, db-configs (backupAll.sh läuft per Cron mit vollem Pfad und bekommt keinen).
 # Nutzung: ./install.sh [--path] [ziel-ordner]    (Standard: ~/bin)
-#   --path   Eintragungen in ~/.bashrc (PATH) und bei Bedarf in die Login-Datei ohne Rückfrage vornehmen
+#   --path   Eintragungen in ~/.bashrc (PATH, Tab-Vervollständigung) und bei Bedarf in die Login-Datei ohne Rückfrage vornehmen
 #            (ohne --path kommt im Terminal eine Rückfrage, sonst nur ein Hinweis).
 
 REPO_DIR="$(cd "$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")" && pwd)"
@@ -22,8 +22,9 @@ declare -A LINKS=(
     [db-decrypt]="decryptDB.sh"
     [db-send]="sendDB.sh"
     [db-fetch]="fetchDB.sh"
+    [db-configs]="configsDB.sh"
 )
-NAMES=(db-export db-import db-decrypt db-send db-fetch)
+NAMES=(db-export db-import db-decrypt db-send db-fetch db-configs)
 
 # Erst alles prüfen, damit bei einem Konflikt nichts halb installiert wird
 for name in "${NAMES[@]}"; do
@@ -52,4 +53,17 @@ done
 
 # Zielordner im PATH? Sonst Eintrag in die ~/.bashrc (per --path oder Rückfrage) oder Hinweis
 ss_ensure_path "$TARGET"
+
+# Tab-Vervollständigung: Source-Zeile in die ~/.bashrc (per --path oder Rückfrage), einmal pro Datei
+COMPLETION_FILE="${REPO_DIR}/dbtools-completion.sh"
+echo
+if grep -qF "$COMPLETION_FILE" "$SS_BASHRC" 2>/dev/null; then
+    ss_ensure_source "$COMPLETION_FILE" "db-tools: Tab-Vervollständigung"
+elif ss_confirm "Tab-Vervollständigung für die db-Befehle in $SS_BASHRC eintragen?"; then
+    ss_ensure_source "$COMPLETION_FILE" "db-tools: Tab-Vervollständigung"
+else
+    echo "Hinweis: Tab-Vervollständigung nicht eingetragen. Zeile für ~/.bashrc (oder: ./install.sh --path):"
+    echo "    [ -f \"$COMPLETION_FILE\" ] && source \"$COMPLETION_FILE\""
+fi
+
 ss_ensure_login_chain

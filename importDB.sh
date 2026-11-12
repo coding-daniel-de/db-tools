@@ -4,6 +4,7 @@
 GUNZIP=0
 PATCH=0
 LATEST=0
+SHOW_CONFIGS=0
 FROM_ENV=""
 POSITIONAL=()
 while [ $# -gt 0 ]; do
@@ -16,6 +17,9 @@ while [ $# -gt 0 ]; do
             ;;
         --latest)
             LATEST=1
+            ;;
+        --configs)
+            SHOW_CONFIGS=1
             ;;
         --from)
             if [ -z "$2" ] || [[ "$2" == --* ]]; then
@@ -37,10 +41,22 @@ while [ $# -gt 0 ]; do
 done
 set -- "${POSITIONAL[@]}"
 
+# Ordner dieses Skripts ermitteln, damit der Aufruf aus jedem Ordner funktioniert
+SCRIPT_DIR="$(cd "$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")" && pwd)"
+
+# Gemeinsame Funktionen laden
+source "${SCRIPT_DIR}/dbtools-lib.sh" || exit 1
+
+# --configs: die Datenbank-Umgebungen zeigen, die dieser Befehl annimmt
+if [ "$SHOW_CONFIGS" -eq 1 ]; then
+    print_configs db
+    exit 0
+fi
+
 # Hilfe-Text anzeigen, wenn der erste Parameter komplett fehlt
 if [ -z "$1" ]; then
     echo "Fehler: Bitte gib die Umgebung an!"
-    echo "Nutzung: $0 <ziel-umgebung | ddev | decrypt> [dateiname.sql[.gz[.gpg]]] [--from quell-umgebung] [--latest] [--gunzip] [--patch]"
+    echo "Nutzung: $0 <ziel-umgebung | ddev | decrypt> [dateiname.sql[.gz[.gpg]]] [--from quell-umgebung] [--latest] [--gunzip] [--patch] [--configs]"
     echo "         ohne Dateiname wird eine Liste der Dumps gezeigt (Enter = Nr. 1, der neueste)"
     echo "         --from filtert die Liste auf die Dumps dieser Umgebung (sonst auf die der Ziel-Umgebung)"
     echo "         --latest nimmt ohne Liste den neuesten Dump"
@@ -55,6 +71,9 @@ if [ -z "$1" ]; then
     echo "Beispiel: $0 decrypt --from dev --gunzip   (entschlüsseln und entpacken, --gunzip nur bei decrypt)"
     echo "Beispiel: $0 live aenderungen.sql --patch  (nur die Befehle der Datei ausführen, DB wird nicht geleert)"
     echo "Beispiel: $0 stage --patch            (dito, Datei aus einer Liste des Patch-Ordners auswählen)"
+    echo "Beispiel: $0 --configs                (vorhandene Umgebungen anzeigen)"
+    echo
+    print_configs db
     exit 1
 fi
 
@@ -62,12 +81,6 @@ if [ $# -gt 2 ]; then
     echo "Fehler: Zu viele Parameter ('${3}')! Erlaubt sind Ziel und optional ein Dateiname, die Quell-Umgebung steht in --from."
     exit 1
 fi
-
-# Ordner dieses Skripts ermitteln, damit der Aufruf aus jedem Ordner funktioniert
-SCRIPT_DIR="$(cd "$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")" && pwd)"
-
-# Gemeinsame Funktionen laden
-source "${SCRIPT_DIR}/dbtools-lib.sh" || exit 1
 
 # --- Funktionen ---
 
@@ -289,19 +302,19 @@ drop_statements() {
 
 # Umgebung festlegen anhand des Parameters
 ENV=$1
-CONF_FILE="${SCRIPT_DIR}/db_${ENV}.conf"
+CONF_FILE=$(find_conf "db_${ENV}.conf")
 
 if is_reserved_env "$ENV"; then
     # Reservierter Name: eine gleichnamige Config würde ignoriert, deshalb vorher abbrechen
-    if [ -f "$CONF_FILE" ]; then
+    if [ -n "$CONF_FILE" ]; then
         echo "Fehler: '${ENV}' ist ein reservierter Name für $(reserved_purpose "$ENV")."
         echo "Die Datei 'db_${ENV}.conf' würde ignoriert. Bitte umbenennen oder löschen."
         exit 1
     fi
 else
     # Prüfen, ob die zugehörige Konfigurationsdatei existiert
-    if [ ! -f "$CONF_FILE" ]; then
-        echo "Fehler: Konfigurationsdatei 'db_${ENV}.conf' wurde nicht gefunden (gesucht in '${SCRIPT_DIR}')!"
+    if [ -z "$CONF_FILE" ]; then
+        echo "Fehler: Konfigurationsdatei 'db_${ENV}.conf' wurde nicht gefunden (gesucht in $(conf_search_text))!"
         exit 1
     fi
 
@@ -369,7 +382,7 @@ if [ -n "$FILE_ARG" ]; then
             echo "Fehler: '${FILE_ARG}' ist keine Dump-Datei (.sql, .sql.gz oder .sql.gz.gpg)!"
             if [ "$FILE_ARG" = "list" ]; then
                 echo "Hinweis: 'list' gibt es nicht mehr. Ohne Dateiname wird die Liste automatisch gezeigt."
-            elif [ -f "${SCRIPT_DIR}/db_${FILE_ARG}.conf" ]; then
+            elif find_conf "db_${FILE_ARG}.conf" >/dev/null; then
                 echo "Hinweis: Die Quell-Umgebung wird mit --from angegeben: $0 ${ENV} --from ${FILE_ARG}"
             fi
             exit 1
@@ -386,9 +399,8 @@ else
     FILTER_PREFIX=""
     FILTER_TEXT=""
     if [ -n "$FROM_ENV" ]; then
-        SOURCE_CONF="${SCRIPT_DIR}/db_${FROM_ENV}.conf"
-        if [ ! -f "$SOURCE_CONF" ]; then
-            echo "Fehler: Für --from '${FROM_ENV}' wurde 'db_${FROM_ENV}.conf' nicht gefunden (gesucht in '${SCRIPT_DIR}')!"
+        if ! SOURCE_CONF=$(find_conf "db_${FROM_ENV}.conf"); then
+            echo "Fehler: Für --from '${FROM_ENV}' wurde 'db_${FROM_ENV}.conf' nicht gefunden (gesucht in $(conf_search_text))!"
             exit 1
         fi
         FILTER_PREFIX=$(grep -E '^PREFIX=' "$SOURCE_CONF" | head -n 1 | cut -d '=' -f2- | tr -d '"')
