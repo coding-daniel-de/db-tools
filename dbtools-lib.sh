@@ -1,29 +1,70 @@
 # Gemeinsame Funktionen für exportDB.sh und importDB.sh.
 # Wird nur per source geladen (nicht direkt ausführen). Erwartet, dass SCRIPT_DIR gesetzt ist.
 
-# --- Config-Dateien: erst conf/, dann Root ---
+# --- Config-Dateien: User-Ordner, conf/, Root ---
 
-# Config-Datei $1 (z. B. db_dev.conf) suchen: erst in conf/, dann im Skript-Ordner (Übergang, bestehende
-# Configs müssen nicht verschoben werden). Gibt den Pfad aus, Rückgabe 1 wenn es sie nirgends gibt.
-# Gibt es sie an beiden Orten, gewinnt conf/.
-find_conf() {
-    if [ -f "${SCRIPT_DIR}/conf/$1" ]; then
-        printf '%s\n' "${SCRIPT_DIR}/conf/$1"
-    elif [ -f "${SCRIPT_DIR}/$1" ]; then
-        printf '%s\n' "${SCRIPT_DIR}/$1"
-    else
-        return 1
-    fi
+# Suchorte für Configs in Rangfolge (höchste zuerst), je einer pro Zeile. Ein weiterer Ordner wäre
+# eine einzelne Zeile hier. Der User-Ordner überschreibt das Globale (Installation), conf/ geht vor
+# dem Root (Übergang, bestehende Configs müssen nicht verschoben werden).
+conf_dirs() {
+    printf '%s\n' "${HOME}/db-tools-conf" "${SCRIPT_DIR}/conf" "${SCRIPT_DIR}"
 }
 
-# Suchorte für Meldungen
+# Config-Datei $1 (z. B. db_dev.conf) suchen: erste Fundstelle in der Reihenfolge von conf_dirs
+# gewinnt (ganze Datei, kein Mischen). Gibt den Pfad aus, Rückgabe 1 wenn es sie nirgends gibt.
+find_conf() {
+    local dir
+    while IFS= read -r dir; do
+        if [ -f "${dir}/$1" ]; then
+            printf '%s\n' "${dir}/$1"
+            return 0
+        fi
+    done < <(conf_dirs)
+    return 1
+}
+
+# Alle Fundstellen von $1, je eine pro Zeile in Rangfolge (die erste gewinnt). Rückgabe 1 ohne Treffer.
+find_conf_all() {
+    local dir found=1
+    while IFS= read -r dir; do
+        if [ -f "${dir}/$1" ]; then
+            printf '%s\n' "${dir}/$1"
+            found=0
+        fi
+    done < <(conf_dirs)
+    return $found
+}
+
+# Suchorte für Meldungen: "'a', 'b' und 'c'"
 conf_search_text() {
-    echo "'${SCRIPT_DIR}/conf' und '${SCRIPT_DIR}'"
+    local -a dirs=()
+    local dir out="" i
+    while IFS= read -r dir; do dirs+=("'${dir}'"); done < <(conf_dirs)
+    for i in "${!dirs[@]}"; do
+        if [ "$i" -eq 0 ]; then out="${dirs[$i]}"
+        elif [ "$i" -eq $((${#dirs[@]} - 1)) ]; then out+=" und ${dirs[$i]}"
+        else out+=", ${dirs[$i]}"
+        fi
+    done
+    printf '%s' "$out"
+}
+
+# dbtools.conf schichten: alle Fundstellen nacheinander laden, die niedrigste Rangfolge zuerst, damit
+# höhere (User-Ordner vor conf/ vor Root) einzelne Werte überschreiben und der Rest Default bleibt.
+# CHECK_CONF_PERMS (Rechte-Warnung für db_*.conf) hat den Standard 1.
+load_dbtools_conf() {
+    CHECK_CONF_PERMS=1
+    local f i
+    local -a files=()
+    mapfile -t files < <(find_conf_all dbtools.conf)
+    for ((i = ${#files[@]} - 1; i >= 0; i--)); do
+        source "${files[$i]}"
+    done
 }
 
 # Verzeichnisse für Dumps (DUMP_DIR), DDEV-Dumps (DDEV_DUMP_DIR), Backups (BACKUP_DIR, Fallback
 # DUMP_DIR) und Patch-Dateien (PATCH_DIR)
-# ermitteln: Default (DUMP_DIR: $HOME/sql-dumps, unabhängig vom Ablageort der Skripte), optional überschrieben durch dbtools.conf (conf/ oder Root, relative Pfade gelten relativ
+# ermitteln: Default (DUMP_DIR: $HOME/sql-dumps, unabhängig vom Ablageort der Skripte), optional überschrieben durch dbtools.conf (geschichtet, siehe load_dbtools_conf; relative Pfade gelten relativ
 # zum Skript-Ordner). BACKUP_ENVS (Liste der Umgebungen für backupAll.sh) wird nur durchgereicht.
 # DDEV_DUMP_DIR fällt auf DUMP_DIR zurück, wenn es nicht gesetzt ist.
 resolve_dirs() {
@@ -32,10 +73,7 @@ resolve_dirs() {
     DDEV_DUMP_DIR=""
     BACKUP_DIR=""
     BACKUP_ENVS=""
-    local GLOBAL_CONF
-    if GLOBAL_CONF=$(find_conf dbtools.conf); then
-        source "$GLOBAL_CONF"
-    fi
+    load_dbtools_conf
     [ -z "$DDEV_DUMP_DIR" ] && DDEV_DUMP_DIR="$DUMP_DIR"
     [ -z "$BACKUP_DIR" ] && BACKUP_DIR="$DUMP_DIR"
     case "$DDEV_DUMP_DIR" in
@@ -211,12 +249,29 @@ open_tunnel() {
     trap close_tunnel EXIT
 }
 
+# Rechte-Warnung: hat eine db_*.conf (enthält Passwörter) Rechte für Gruppe oder andere, kommt eine
+# Warnung auf stderr, der Lauf geht weiter. Eine Warnung pro Datei und Lauf. Abschaltbar mit
+# CHECK_CONF_PERMS=0 in der dbtools.conf.
+CONF_PERM_WARNED=""
+warn_conf_perms() {
+    local mode
+    case "$CONF_PERM_WARNED" in *"|$1|"*) return 0 ;; esac
+    [ "$(load_dbtools_conf >/dev/null 2>&1; echo "$CHECK_CONF_PERMS")" = "0" ] && return 0
+    mode=$(stat -c %a -- "$1" 2>/dev/null) || return 0
+    if [ $((8#$mode & 8#077)) -ne 0 ]; then
+        CONF_PERM_WARNED+="|$1|"
+        echo "Warnung: '${1}' hat die Rechte ${mode}, Gruppe oder andere können die Zugangsdaten lesen. Empfehlung: chmod 600 '${1}' (Warnung abschaltbar mit CHECK_CONF_PERMS=0 in der dbtools.conf)." >&2
+    fi
+    return 0
+}
+
 # db_<name>.conf $1 laden. Optionale Werte werden vorher zurückgesetzt, damit nichts aus einer
 # anderen Umgebung stehen bleibt. Mit SSH_TUNNEL wird der Tunnel geöffnet und DB_HOST/DB_PORT auf
 # 127.0.0.1:TUNNEL_PORT gesetzt (DB_HOST der Config gilt dann nicht). Setzt DB_PORT_ARGS für mysql/mysqldump
 # (-P nur, wenn DB_PORT gesetzt ist, auch ohne Tunnel möglich).
 load_db_conf() {
     unset SSH_TUNNEL TUNNEL_PORT TUNNEL_REMOTE DB_PORT
+    warn_conf_perms "$1"
     source "$1"
     DB_PORT_ARGS=()
     if [ -n "$SSH_TUNNEL" ]; then
@@ -240,20 +295,22 @@ conf_value() {
 # Namen der Configs der Art $1 (db oder remote) ausgeben, eindeutig und sortiert. Die Vorlage
 # (<art>_template.conf) zählt nicht.
 conf_names() {
-    local kind="$1" f name
-    for f in "${SCRIPT_DIR}/conf/${kind}_"*.conf "${SCRIPT_DIR}/${kind}_"*.conf; do
-        [ -f "$f" ] || continue
-        name="${f##*/}"; name="${name#"${kind}_"}"; name="${name%.conf}"
-        [ "$name" = "template" ] && continue
-        printf '%s\n' "$name"
-    done | sort -u
+    local kind="$1" dir f name
+    while IFS= read -r dir; do
+        for f in "${dir}/${kind}_"*.conf; do
+            [ -f "$f" ] || continue
+            name="${f##*/}"; name="${name#"${kind}_"}"; name="${name%.conf}"
+            [ "$name" = "template" ] && continue
+            printf '%s\n' "$name"
+        done
+    done < <(conf_dirs) | sort -u
 }
 
 # Tabelle der Configs ausgeben: print_configs <db|remote|all>. Passwörter werden nie angezeigt.
 # Spalten: Name, Art, Ziel, Datei und ggf. ein Hinweis (doppelt/veraltet, unvollständig). Die Datei
-# ist der tatsächlich verwendete Pfad (conf/ gewinnt). Ohne Treffer kommt ein Hinweis auf die Vorlage.
+# ist der tatsächlich verwendete Pfad (Rangfolge wie conf_dirs), überdeckte Dateien werden markiert. Ohne Treffer kommt ein Hinweis auf die Vorlage.
 print_configs() {
-    local KINDS KIND NAME FILE ART TARGET NOTE MISSING V
+    local KINDS KIND NAME FILE ART TARGET NOTE MISSING V OTHER WORD
     local -a ROWS=()
     case "$1" in
         all) KINDS=(db remote) ;;
@@ -264,9 +321,13 @@ print_configs() {
             [ -n "$NAME" ] || continue
             FILE=$(find_conf "${KIND}_${NAME}.conf")
             NOTE=""
-            if [ "$FILE" = "${SCRIPT_DIR}/conf/${KIND}_${NAME}.conf" ] && [ -f "${SCRIPT_DIR}/${KIND}_${NAME}.conf" ]; then
-                NOTE="Hinweis: doppelt/veraltet: ${SCRIPT_DIR}/${KIND}_${NAME}.conf (conf/ gewinnt)"
-            fi
+            # weitere Fundstellen sind von der ersten überdeckt; im Root heißt das "veraltet" (Übergang)
+            while IFS= read -r OTHER; do
+                [ "$OTHER" = "$FILE" ] && continue
+                if [ "$OTHER" = "${SCRIPT_DIR}/${KIND}_${NAME}.conf" ]; then WORD="veraltet"; else WORD="überdeckt"; fi
+                NOTE+="${NOTE:+; }doppelt/${WORD}: ${OTHER} (gewinnt: ${FILE})"
+            done < <(find_conf_all "${KIND}_${NAME}.conf")
+            [ -n "$NOTE" ] && NOTE="Hinweis: ${NOTE}"
             MISSING=""
             if [ "$KIND" = "db" ]; then
                 ART="Datenbank-Umgebung"
@@ -296,7 +357,7 @@ print_configs() {
     done
     if [ "${#ROWS[@]}" -eq 0 ]; then
         case "$1" in
-            db) echo "Keine Datenbank-Umgebungen gefunden. Vorlage: conf/db_template.conf (kopieren nach conf/db_<name>.conf)." ;;
+            db) echo "Keine Datenbank-Umgebungen gefunden. Vorlage: conf/db_template.conf (kopieren nach conf/db_<name>.conf oder ~/db-tools-conf/)." ;;
             remote) echo "Keine Server gefunden. Vorlage: conf/remote_template.conf (kopieren nach conf/remote_<name>.conf)." ;;
             *) echo "Keine Configs gefunden. Vorlagen: conf/db_template.conf, conf/remote_template.conf." ;;
         esac

@@ -5,6 +5,7 @@
 # Fehlt dbtools.conf, werden $HOME/sql-dumps und $HOME/sql-patches als Standard verwendet
 # (DDEV-Exporte landen dann ebenfalls in $HOME/sql-dumps).
 # Relative Pfade gelten relativ zum Ordner der Skripte.
+# Die Datei wird geschichtet geladen (Root, conf/, ~/db-tools-conf/; spätere Werte gewinnen einzeln).
 
 # Verzeichnis für SQL-Dumps. Tilde (~) wird von Bash in Anführungszeichen
 # NICHT aufgelöst, stattdessen $HOME verwenden, z. B.:
@@ -24,3 +25,7 @@ DDEV_DUMP_DIR=""
 #   BACKUP_DIR="$HOME/backups"
 BACKUP_ENVS=""
 BACKUP_DIR=""
+
+# Rechte-Warnung: haben Gruppe oder andere irgendein Recht an einer db_<name>.conf (alles außer
+# 600/400), meldet jedes Tool beim Laden eine Warnung auf stderr (Lauf geht weiter). 0 schaltet ab.
+CHECK_CONF_PERMS=1

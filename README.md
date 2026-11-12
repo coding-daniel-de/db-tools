@@ -34,7 +34,9 @@ DB_NAME=""
 PREFIX="project-dev"
 ```
 
-**Übergang Root → `conf/`:** Configs im Root des db-tools-Ordners (`db_<name>.conf`, `remote_<name>.conf`, `dbtools.conf`) werden weiter gefunden. Gesucht wird erst in `conf/`, dann im Root; gibt es dieselbe Datei an beiden Orten, gewinnt `conf/`. Bestehende Configs müssen nicht verschoben werden, wer will, verschiebt sie von Hand (`mv db_*.conf remote_*.conf dbtools.conf conf/`). Die Übersicht (siehe unten) markiert Root-Dateien, die zusätzlich in `conf/` liegen, als doppelt/veraltet.
+**Suchreihenfolge:** Gesucht wird nacheinander in `~/db-tools-conf/` (User-Ordner, z. B. für Web-Accounts, wenn die Tools global installiert sind und im Installationsordner keine Configs liegen), in `conf/` der Installation und im Root des db-tools-Ordners (Übergang: Configs von früher, `db_<name>.conf`, `remote_<name>.conf`, `dbtools.conf`, werden weiter gefunden). Bei `db_*.conf` und `remote_*.conf` gewinnt die erste Fundstelle als ganze Datei, es wird nicht gemischt: der User-Ordner überschreibt das Globale. Bestehende Configs müssen nicht verschoben werden, wer will, verschiebt sie von Hand (`mv db_*.conf remote_*.conf dbtools.conf conf/`). Den User-Ordner von Hand anlegen (`mkdir -m 700 ~/db-tools-conf`) und die Vorlagen hineinkopieren; Fehlermeldungen nennen immer alle durchsuchten Ordner. Die Übersicht (siehe unten) markiert überdeckte Dateien als doppelt.
+
+**Rechte der `db_*.conf`:** Jedes Tool prüft beim Laden einer `db_<name>.conf` (egal wo sie liegt, `remote_*.conf` enthält keine Passwörter und wird nicht geprüft), ob Gruppe oder andere ein Recht haben (alles außer 600/400). Dann kommt eine Warnung auf stderr (einmal pro Datei und Lauf, bei `backupAll.sh` einmal pro Umgebung, Cron mailt sie), der Lauf geht weiter. Abhilfe: `chmod 600 <datei>`. Abschalten mit `CHECK_CONF_PERMS=0` in der `dbtools.conf` (Standard: `1`). Auf Rechnern, deren Configs mit `664` angelegt wurden (üblich bei `umask 0002`), erscheint die Warnung deshalb, bis die Rechte gesetzt sind oder der Schalter auf `0` steht.
 
 Dateien nach dem Muster `db_*.conf` und `remote_*.conf` (außer den `*_template.conf`) werden von Git ignoriert, damit keine echten Zugangsdaten versehentlich veröffentlicht werden.
 
@@ -52,6 +54,8 @@ DDEV_DUMP_DIR=""
 
 Relative Pfade gelten relativ zum Ordner der Skripte.
 
+`dbtools.conf` wird geschichtet geladen: erst die im Root, dann die in `conf/`, zuletzt die im User-Ordner `~/db-tools-conf/`. Spätere Werte überschreiben einzelne frühere, alles, was nicht gesetzt wird, bleibt Standard (ein Account kann so nur z. B. `DUMP_DIR` ändern). Ebenfalls dort: `CHECK_CONF_PERMS=1|0` (Rechte-Warnung, siehe oben).
+
 `dbtools.conf` wird ebenfalls von Git ignoriert. Tilde (`~`) wird von Bash in Anführungszeichen nicht aufgelöst, stattdessen `$HOME` verwenden, z. B. `DUMP_DIR="$HOME/sqldumps"`.
 
 ### Configs anzeigen (`--configs`, `db-configs`)
@@ -64,7 +68,7 @@ db-send --configs       db-fetch --configs      Server (remote_*.conf)
 db-configs                                      beides zusammen, mit Spalte "Art"
 ```
 
-Die Tabelle zeigt Name, Ziel (bei Umgebungen DB-Host/Name und Präfix, bei Servern der SSH-Alias; **nie Passwörter**) und die Datei, die tatsächlich verwendet wird. Unvollständige Configs erscheinen mit Hinweis statt Daten, Root-Dateien, die auch in `conf/` liegen, mit dem Hinweis "doppelt/veraltet". Die Vorlagen werden nicht gelistet. Ein Aufruf von `db-export`, `db-import`, `db-send` oder `db-fetch` ganz ohne Parameter zeigt zur Hilfe auch diese Tabelle. (`--configs` ist eine Option und kollidiert deshalb nicht mit den reservierten Wörtern `ddev` und `decrypt` an Position 1.)
+Die Tabelle zeigt Name, Ziel (bei Umgebungen DB-Host/Name und Präfix, bei Servern der SSH-Alias; **nie Passwörter**) und die Datei, die tatsächlich verwendet wird. Unvollständige Configs erscheinen mit Hinweis statt Daten, überdeckte Dateien (gleicher Name an mehreren Orten) mit dem Hinweis "doppelt/überdeckt", Root-Dateien als "doppelt/veraltet", jeweils mit dem Pfad der Datei, die gewinnt. Die Vorlagen werden nicht gelistet. Ein Aufruf von `db-export`, `db-import`, `db-send` oder `db-fetch` ganz ohne Parameter zeigt zur Hilfe auch diese Tabelle. (`--configs` ist eine Option und kollidiert deshalb nicht mit den reservierten Wörtern `ddev` und `decrypt` an Position 1.)
 
 ## Nutzung
 

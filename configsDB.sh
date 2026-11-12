@@ -1,8 +1,8 @@
 #!/bin/bash
 # Zeigt alle Configs auf einmal: Datenbank-Umgebungen (db_<name>.conf, für db-export und db-import)
 # und Server (remote_<name>.conf, für db-send und db-fetch) mit Spalte "Art". Keine Passwörter.
-# Gesucht wird erst in conf/, dann im Skript-Ordner (conf/ gewinnt, die Root-Datei wird als
-# doppelt/veraltet markiert). Pro Befehl gibt es dasselbe als Option: db-export --configs usw.
+# Gesucht wird in ~/db-tools-conf/, conf/ und im Skript-Ordner (erste Fundstelle gewinnt, überdeckte
+# Dateien werden als doppelt markiert). Pro Befehl gibt es dasselbe als Option: db-export --configs usw.
 # Nutzung: configsDB.sh
 #
 # Intern für die Tab-Vervollständigung: configsDB.sh --names <db|remote> gibt nur die Namen aus.
