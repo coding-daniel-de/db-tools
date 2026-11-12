@@ -5,7 +5,7 @@ B="$T/bin"
 # --- Anlegen, Ordner wird bei Bedarf erstellt ---
 mkdir -p "$T/h0"; : > "$T/h0/.bashrc"
 ( cd "$T/elsewhere" && HOME="$T/h0" "$REPO/install.sh" "$B" </dev/null ) >$T/out 2>&1; rc=$?
-ok "install: Exit 0, sechs Symlinks mit absolutem Ziel" "[ $rc -eq 0 ] && [ \"\$(readlink $B/db-export)\" = '$REPO/exportDB.sh' ] && [ \"\$(readlink $B/db-import)\" = '$REPO/importDB.sh' ] && [ \"\$(readlink $B/db-decrypt)\" = '$REPO/decryptDB.sh' ] && [ \"\$(readlink $B/db-send)\" = '$REPO/sendDB.sh' ] && [ \"\$(readlink $B/db-fetch)\" = '$REPO/fetchDB.sh' ] && [ \"\$(readlink $B/db-configs)\" = '$REPO/configsDB.sh' ]"
+ok "install: Exit 0, sieben Symlinks mit absolutem Ziel" "[ $rc -eq 0 ] && [ \"\$(readlink $B/db-export)\" = '$REPO/exportDB.sh' ] && [ \"\$(readlink $B/db-import)\" = '$REPO/importDB.sh' ] && [ \"\$(readlink $B/db-decrypt)\" = '$REPO/decryptDB.sh' ] && [ \"\$(readlink $B/db-send)\" = '$REPO/sendDB.sh' ] && [ \"\$(readlink $B/db-fetch)\" = '$REPO/fetchDB.sh' ] && [ \"\$(readlink $B/db-configs)\" = '$REPO/configsDB.sh' ]  && [ \"\$(readlink $B/db-init-config)\" = '$REPO/initConfigDB.sh' ]"
 ok "install: kein Symlink fuer backupAll" "[ ! -e $B/backupAll.sh ] && ! ls $B | grep -qi backup"
 ok "install: PATH-Hinweis, wenn Zielordner nicht im PATH" "grep -q 'liegt nicht im PATH' $T/out && grep -q 'export PATH=\"$B:' $T/out"
 
@@ -21,7 +21,7 @@ ok "install: ohne Terminal und ohne --path bleibt bashrc unveraendert" "[ ! -s $
 
 # --- Wiederholbar ---
 ( "$REPO/install.sh" "$B" ) >$T/out 2>&1; rc=$?
-ok "install: zweiter Lauf ok, nichts zu tun" "[ $rc -eq 0 ] && [ \"\$(grep -c 'Schon vorhanden' $T/out)\" -eq 6 ]"
+ok "install: zweiter Lauf ok, nichts zu tun" "[ $rc -eq 0 ] && [ \"\$(grep -c 'Schon vorhanden' $T/out)\" -eq 7 ]"
 
 # --- Zielordner im PATH: kein Hinweis ---
 ( PATH="$B:$PATH" "$REPO/install.sh" "$B" ) >$T/out 2>&1

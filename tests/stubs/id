@@ -1,0 +1,7 @@
+#!/bin/bash
+# Stub für id: mit STUB_ID_U gesetzt liefert "id -u" diesen Wert (Root-Prüfung in install.sh --global testen), sonst das echte id.
+if [ "$1" = "-u" ] && [ -n "$STUB_ID_U" ]; then
+    echo "$STUB_ID_U"
+    exit 0
+fi
+exec /usr/bin/id "$@"

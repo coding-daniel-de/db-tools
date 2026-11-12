@@ -10,11 +10,45 @@ Damit die Tools ohne Pfad aufrufbar sind, legt `install.sh` Symlinks in einem Or
 ./install.sh                  # nach ~/bin
 ./install.sh ~/.local/bin     # in einen anderen Ordner
 ./install.sh --path           # dazu ~/bin ohne Rückfrage in den PATH der ~/.bashrc eintragen
+sudo ./install.sh --global    # für alle Accounts eines Servers, siehe "Globale Installation"
+sudo ./install.sh --global    # für alle Accounts eines Servers, siehe "Globale Installation"
 ```
 
-Die Befehle: `db-export` (`exportDB.sh`), `db-import` (`importDB.sh`) und `db-decrypt` (`decryptDB.sh`), `db-send` (`sendDB.sh`) und `db-fetch` (`fetchDB.sh`) sowie `db-configs` (`configsDB.sh`, Übersicht aller Configs). `backupAll.sh` bekommt keinen Symlink, es läuft per Cron mit vollem Pfad. Der Zielordner wird bei Bedarf angelegt. Liegt er nicht im `PATH`, fragt `install.sh` im Terminal, ob es den Eintrag in die `~/.bashrc` schreiben soll (mit `--path` ohne Rückfrage; der Eintrag trägt einen Marker (`# bin-path`, derselbe wie bei remote-tools) und kommt nie doppelt). Ohne Terminal und ohne `--path` zeigt es nur die passende Zeile (`~/.profile` nimmt `~/bin` und `~/.local/bin` auf Debian/Ubuntu nur auf, wenn der Ordner beim Login schon existiert). Bindet die Datei, die bash beim Login liest (`~/.bash_profile`, sonst `~/.bash_login`, sonst `~/.profile`), die `~/.bashrc` nicht ein, schlägt `install.sh` (nach Rückfrage, mit `--path` ohne) die Zeile `[ -f ~/.bashrc ] && . ~/.bashrc` dort vor, sonst fehlt der PATH-Eintrag beim SSH-Login (typisch bei einem eigenen `.bash_profile`). Die Hilfsfunktionen dafür stehen in `lib/shell-setup.sh`, laufen ohne `realpath` und ergänzen nur. Ein erneuter Aufruf ist gefahrlos; existiert am Ziel schon etwas anderes (fremde Datei, Symlink woandershin), bricht `install.sh` ab und überschreibt nichts.
+Die Befehle: `db-export` (`exportDB.sh`), `db-import` (`importDB.sh`) und `db-decrypt` (`decryptDB.sh`), `db-send` (`sendDB.sh`) und `db-fetch` (`fetchDB.sh`), `db-configs` (`configsDB.sh`, Übersicht aller Configs) sowie `db-init-config` (`initConfigDB.sh`, legt den User-Ordner `~/db-tools-conf/` an, siehe unten). `backupAll.sh` bekommt keinen Symlink, es läuft per Cron mit vollem Pfad. Der Zielordner wird bei Bedarf angelegt. Liegt er nicht im `PATH`, fragt `install.sh` im Terminal, ob es den Eintrag in die `~/.bashrc` schreiben soll (mit `--path` ohne Rückfrage; der Eintrag trägt einen Marker (`# bin-path`, derselbe wie bei remote-tools) und kommt nie doppelt). Ohne Terminal und ohne `--path` zeigt es nur die passende Zeile (`~/.profile` nimmt `~/bin` und `~/.local/bin` auf Debian/Ubuntu nur auf, wenn der Ordner beim Login schon existiert). Bindet die Datei, die bash beim Login liest (`~/.bash_profile`, sonst `~/.bash_login`, sonst `~/.profile`), die `~/.bashrc` nicht ein, schlägt `install.sh` (nach Rückfrage, mit `--path` ohne) die Zeile `[ -f ~/.bashrc ] && . ~/.bashrc` dort vor, sonst fehlt der PATH-Eintrag beim SSH-Login (typisch bei einem eigenen `.bash_profile`). Die Hilfsfunktionen dafür stehen in `lib/shell-setup.sh`, laufen ohne `realpath` und ergänzen nur. Ein erneuter Aufruf ist gefahrlos; existiert am Ziel schon etwas anderes (fremde Datei, Symlink woandershin), bricht `install.sh` ab und überschreibt nichts.
 
 **Tab-Vervollständigung:** `install.sh` trägt außerdem eine Source-Zeile für `dbtools-completion.sh` in die `~/.bashrc` ein (Rückfrage im Terminal, mit `--path` ohne; kommt nie doppelt, erkennbar am Kommentar `# db-tools: Tab-Vervollständigung`). Danach vervollständigt `db-import <TAB>` und `db-export <TAB>` die Datenbank-Umgebungen (dazu die reservierten Wörter `ddev` bzw. `ddev`/`decrypt`, nur wo das Skript sie akzeptiert), `db-send <TAB>` und `db-fetch <TAB>` die Server, `--from`/`--env` die Umgebungen und `--out` Ordner. Die Namen werden erst beim Tab-Druck gelesen, nicht beim Shell-Start.
+
+### Globale Installation (Server mit mehreren Accounts)
+
+Auf einem Server mit mehreren Web-Accounts werden die Tools einmal installiert, die Configs liegen pro Account in dessen Home (`~/db-tools-conf/`).
+
+```
+sudo git clone <repo-url> /opt/db-tools     # Besitzer des Klons: der User, der später "git pull" macht
+cd /opt/db-tools && sudo ./install.sh --global
+# danach in jedem Account, als dieser User:
+db-init-config                              # legt ~/db-tools-conf/ mit den Vorlagen an
+db-init-config live                         # dazu db_live.conf aus der Vorlage, danach Zugangsdaten eintragen
+```
+
+- `--global` legt die Symlinks (inkl. `db-init-config`) in `/usr/local/bin` an, ein PATH-Eintrag oder eine Änderung an `~/.bashrc` und Login-Dateien ist nicht nötig. Es braucht root (`sudo`, das Skript ruft es nicht selbst auf) und lässt sich nicht mit `--path` oder einem Zielordner kombinieren.
+- Vorher prüft `install.sh`, ob die Installation für andere Accounts erreichbar ist: jeder Ordner auf dem Weg zum Repo hat für "andere" das `x`-Recht, die Skripte sind lesbar und ausführbar, `dbtools-lib.sh`, `dbtools-completion.sh` und die Vorlagen lesbar. Sonst bricht es ab, ohne etwas anzulegen oder Rechte zu ändern, und empfiehlt den Klon nach `/opt/db-tools` (liegt das Repo z. B. in `/home/<user>/`, ist es für die anderen Accounts meist nicht erreichbar). Rechte setzt das Skript nie selbst, es kopiert auch nichts. Die Konfliktprüfung bleibt: eine fremde Datei am Ziel führt zum Abbruch.
+- Die Tab-Vervollständigung wird global nicht eingetragen. Jeder Account, der sie will, nimmt die Zeile, die `install.sh --global` am Ende ausgibt, in die eigene `~/.bashrc` auf.
+- **Updates:** `git pull` im Repo-Ordner, als Besitzer des Klons. Die Symlinks zeigen auf die Skripte, ein erneutes `install.sh --global` ist nur bei neuen Befehlen nötig (und gefahrlos). Neue Vorlagen kommen mit `db-init-config --templates` in den User-Ordner.
+- Die Configs der Accounts sind nicht Teil der Installation. `db_*.conf` enthält Passwörter, deshalb warnt jedes Tool beim Laden, wenn Gruppe oder andere ein Recht daran haben (`CHECK_CONF_PERMS`). Bei dieser Warnung: `chmod 600 ~/db-tools-conf/db_*.conf`.
+
+### Eigene Configs anlegen (`db-init-config`)
+
+```
+db-init-config [name] [--templates]
+
+db-init-config                    ~/db-tools-conf/ (Rechte 700) anlegen und die fehlenden Vorlagen hineinkopieren
+db-init-config live               zusätzlich db_live.conf aus der Vorlage anlegen (Rechte 600), Pfad wird genannt
+db-init-config --templates        die drei Vorlagen auf den Stand der Installation bringen
+```
+
+- Kopiert werden `db_template.conf`, `remote_template.conf` und `dbtools.conf.example` aus `conf/` der Installation. Vorhandene Dateien werden nie überschrieben, der Befehl meldet je Datei "Angelegt" oder "Schon vorhanden"; ein wiederholter Aufruf ändert nichts.
+- `db-init-config <name>`: Name wie bei den anderen Tools (`A-Z a-z 0-9 . _ -`), reserviert sind `ddev`, `decrypt` (Import) und `template`. Existiert `db_<name>.conf` schon, bricht der Befehl ab und ändert nichts. Die Datei wird nicht geöffnet, DB_HOST, DB_USER, DB_PASS, DB_NAME und PREFIX trägt der User selbst ein. Eine `remote_<name>.conf` für `db-send`/`db-fetch` entsteht durch Kopieren von `remote_template.conf`.
+- `--templates` überschreibt nur die drei Vorlagen, ohne Rückfrage, und meldet je Datei "Aktualisiert" oder "Unverändert". Echte Configs (`db_<name>.conf`, `remote_<name>.conf`, `dbtools.conf`) bleiben unberührt. Mit einem Namen zusammen ist `--templates` nicht erlaubt (Fehler, es wird nichts angelegt).
 
 ## Einrichtung
 
@@ -321,7 +355,7 @@ Mit einem Key mit Passphrase und `ssh-agent` wird die Passphrase einmal pro Sitz
 tests/run.sh
 ```
 
-Startet alle Tests in `tests/`. Sie brauchen keine echte Datenbank: `mysql`, `mysqldump`, `ddev`, `ssh` und `scp` werden durch Stubs in `tests/stubs` ersetzt, gearbeitet wird in einem temporären Ordner. Benötigt werden `gpg`, `gzip`, `setsid` und `pgrep`. Ein Test schickt Signale an eine Prozessgruppe, deshalb nicht in einer Umgebung ohne Prozesssteuerung ausführen.
+Startet alle Tests in `tests/`. Sie brauchen keine echte Datenbank: `mysql`, `mysqldump`, `ddev`, `ssh`, `scp` und für die Root-Prüfung von `install.sh --global` `id` werden durch Stubs in `tests/stubs` ersetzt, gearbeitet wird in einem temporären Ordner. Benötigt werden `gpg`, `gzip`, `setsid` und `pgrep`. Ein Test schickt Signale an eine Prozessgruppe, deshalb nicht in einer Umgebung ohne Prozesssteuerung ausführen.
 
 ## Offene Punkte
 

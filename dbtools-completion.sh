@@ -1,4 +1,4 @@
-# Tab-Vervollständigung für db-export, db-import, db-decrypt, db-send, db-fetch (bash).
+# Tab-Vervollständigung für db-export, db-import, db-decrypt, db-send, db-fetch, db-init-config (bash).
 # Wird per source aus der ~/.bashrc geladen (install.sh trägt das ein), nicht ausführbar.
 # Die Config-Namen werden erst beim Tab-Druck gelesen (über configsDB.sh --names), nicht beim Shell-Start.
 
@@ -94,9 +94,17 @@ _dbtools_complete_decrypt() {
 _dbtools_complete_transfer() {
     _dbtools_complete remote "" "--env --patch --configs" "--env:db"
 }
+_dbtools_complete_initconfig() {
+    # db-init-config [name] [--templates]: der Name ist neu, dafür gibt es nichts zu vervollständigen
+    local cur="${COMP_WORDS[COMP_CWORD]}"
+    COMPREPLY=()
+    [[ "$cur" == -* ]] && mapfile -t COMPREPLY < <(compgen -W "--templates --help" -- "$cur")
+    return 0
+}
 
 complete -o default -F _dbtools_complete_export db-export
 complete -o default -F _dbtools_complete_import db-import
 complete -o default -F _dbtools_complete_decrypt db-decrypt
 complete -o default -F _dbtools_complete_transfer db-send
 complete -o default -F _dbtools_complete_transfer db-fetch
+complete -F _dbtools_complete_initconfig db-init-config

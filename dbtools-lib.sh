@@ -7,7 +7,12 @@
 # eine einzelne Zeile hier. Der User-Ordner überschreibt das Globale (Installation), conf/ geht vor
 # dem Root (Übergang, bestehende Configs müssen nicht verschoben werden).
 conf_dirs() {
-    printf '%s\n' "${HOME}/db-tools-conf" "${SCRIPT_DIR}/conf" "${SCRIPT_DIR}"
+    printf '%s\n' "$(user_conf_dir)" "${SCRIPT_DIR}/conf" "${SCRIPT_DIR}"
+}
+
+# Der User-Ordner für eigene Configs (db-init-config legt ihn an)
+user_conf_dir() {
+    printf '%s\n' "${HOME}/db-tools-conf"
 }
 
 # Config-Datei $1 (z. B. db_dev.conf) suchen: erste Fundstelle in der Reihenfolge von conf_dirs
